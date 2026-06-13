@@ -350,6 +350,6 @@ async def mistakes_list(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", "8080"))
+    port = int(os.environ.get("PORT", 8080))
     print(f"🚀 错题Pro 启动于端口 {port}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
