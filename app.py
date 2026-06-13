@@ -34,8 +34,12 @@ def health():
     return {"ok": True, "users": len(_users)}
 
 @app.get("/")
-def root():
-    return RedirectResponse("/login")
+def root(request: Request):
+    # 浏览器请求 → 跳转登录页；API/健康检查 → 200
+    accept = request.headers.get("accept","")
+    if "text/html" in accept:
+        return RedirectResponse("/login", 302)
+    return {"ok": True, "app": "错题Pro"}
 
 # ─── CSS ─────────────────────────────────────────
 
