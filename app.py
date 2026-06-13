@@ -386,10 +386,14 @@ async def mistakes_list(request:Request):
 
 if __name__=="__main__":
     import uvicorn, traceback
-    port=int(os.environ.get("PORT",8080))
+    # 从环境变量 OR 命令行参数获取端口
+    p = os.environ.get("PORT", "")
+    if not p and len(sys.argv) > 1:
+        p = sys.argv[1]
+    port = int(p) if p else 8080
     try:
         print(f"🚀 错题Pro 启动于端口 {port}", flush=True)
-        uvicorn.run("app:app",host="0.0.0.0",port=port,log_level="info",reload=False)
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     except Exception as e:
         print(f"❌ 启动失败: {e}", flush=True)
         traceback.print_exc()
