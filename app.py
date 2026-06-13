@@ -2,7 +2,9 @@
 import os, sys, json, hashlib
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
-DATA_DIR = os.path.join(ROOT, "user_data")
+# Zeabur 环境下工作目录可写性不确定，使用 /tmp
+_DATA_ROOT = ROOT if os.access(ROOT, os.W_OK) else "/tmp"
+DATA_DIR = os.path.join(_DATA_ROOT, "user_data")
 
 from dotenv import load_dotenv; load_dotenv()
 
@@ -37,14 +39,14 @@ def ensure_init():
     print("✅ 测试账号就绪: demo/demo, test/test123", flush=True)
 
 @app.get("/health")
-def health(): ensure_init(); return {"ok": True}
+def health(): return {"ok": True}
 
 @app.get("/")
 def root(): return RedirectResponse("/login")
 
 # ─── Session ─────────────────────────────────────
 
-SF = os.path.join(ROOT, ".session")
+SF = os.path.join(_DATA_ROOT, ".session")
 def gs(): return open(SF).read().strip() if os.path.exists(SF) else None
 def ss(n): open(SF, "w").write(n)
 def cs(): os.path.exists(SF) and os.remove(SF)
