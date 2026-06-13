@@ -35,19 +35,17 @@ from dotenv import load_dotenv; load_dotenv()
 
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from contextlib import asynccontextmanager
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+app = FastAPI(title="错题Pro")
+
+@app.on_event("startup")
+def startup():
     try:
         init_account("demo", "demo")
         init_account("test", "test123")
-        print("✅ 测试账号就绪: demo/demo, test/test123")
+        print("✅ 测试账号就绪")
     except Exception as e:
         print(f"⚠️ 初始化跳过: {e}")
-    yield
-
-app = FastAPI(title="错题Pro", lifespan=lifespan)
 
 @app.get("/health")
 def health():
