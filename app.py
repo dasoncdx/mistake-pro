@@ -34,13 +34,7 @@ def health():
     return {"ok": True, "users": len(_users)}
 
 @app.get("/")
-def root(request: Request):
-    # Zeabur 健康检查走 / 且不带 Accept → 返回 200
-    accept = request.headers.get("accept","")
-    ua = request.headers.get("user-agent","")
-    if "text/html" in accept or "Mozilla" in ua:
-        return RedirectResponse("/login", 302)
-    return {"ok": True, "app": "错题Pro"}
+def root(): return {"ok": True, "app": "错题Pro"}
 
 # ─── CSS ─────────────────────────────────────────
 

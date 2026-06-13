@@ -1,5 +1,0 @@
-{
-  "build_command": "pip install -r requirements.txt",
-  "start_command": "uvicorn app:app --host 0.0.0.0 --port 8080",
-  "python_version": "3.12"
-}
