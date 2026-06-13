@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>错题Pro - 设计样图 v3</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+  --bg:        #F5F6FA;
+  --white:     #FFFFFF;
+  --card:      #EEF0F5;
+  --border:    #E4E6EC;
+  --text:      #1A1C24;
+  --text-sub:  #5E6372;
+  --text-weak: #949AAD;
+
+  /* red-blue translucent palette */
+  --blue:      #5B7FFF;
+  --blue-bg:   rgba(91,127,255,.08);
+  --blue-bg2:  rgba(91,127,255,.14);
+  --red:       #FF5B6B;
+  --red-bg:    rgba(255,91,107,.07);
+  --red-bg2:   rgba(255,91,107,.13);
+  --amber:     #FF9F43;
+  --amber-bg:  rgba(255,159,67,.08);
+  --green:     #34C759;
+  --green-bg:  rgba(52,199,89,.08);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  background: #E8EBF3; display: flex; height: 100vh; overflow: hidden;
+}
+
+nav {
+  width: 210px; background: var(--white); border-right: 1px solid var(--border);
+  padding: 28px 0; overflow-y: auto; flex-shrink: 0;
+}
+nav .logo { font-size: 17px; font-weight: 700; color: var(--text); padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+nav .logo span { color: var(--blue); }
+nav a { display: block; padding: 9px 20px; font-size: 13px; color: var(--text-sub); text-decoration: none; cursor: pointer; border-left: 3px solid transparent; transition: all .15s; }
+nav a:hover { background: var(--bg); color: var(--text); }
+nav a.active { background: var(--blue-bg); color: #3D5FD9; border-left-color: var(--blue); font-weight: 600; }
+
+main { flex: 1; display: flex; align-items: center; justify-content: center; background: #E8EBF3; overflow-y: auto; padding: 40px; }
+
+.phone { width: 375px; min-height: 720px; background: var(--bg); border-radius: 36px; box-shadow: 0 24px 80px rgba(0,0,0,.08); overflow-y: auto; position: relative; display: flex; flex-direction: column; }
+
+.statusbar { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 11px; color: var(--text); font-weight: 600; flex-shrink: 0; }
+
+.navbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; min-height: 44px; flex-shrink: 0; }
+.navbar .back  { font-size: 14px; color: var(--blue); cursor: pointer; }
+.navbar .title { font-size: 16px; font-weight: 600; color: var(--text); }
+.navbar .spacer{ width: 40px; }
+
+.pg { padding: 0 20px 28px; display: none; flex: 1; flex-direction: column; }
+.pg.active { display: flex; }
+.pg.scroll { overflow-y: auto; }
+
+/* Typography */
+.h1 { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.3; }
+.h2 { font-size: 19px; font-weight: 700; color: var(--text); line-height: 1.3; }
+.h3 { font-size: 15px; font-weight: 600; color: var(--text); }
+.body { font-size: 15px; color: var(--text); line-height: 1.7; }
+.sub { font-size: 13px; color: var(--text-sub); }
+.sm  { font-size: 12px; color: var(--text-weak); }
+.num { font-size: 44px; font-weight: 800; letter-spacing: -1px; }
+.c-blue  { color: var(--blue); }
+.c-red   { color: var(--red); }
+.c-amber { color: var(--amber); }
+.c-green { color: var(--green); }
+
+/* Cards */
+.crd { background: var(--white); border-radius: 18px; padding: 18px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.crd-ns { box-shadow: none; }
+
+/* Buttons */
+.btn { display: block; width: 100%; height: 50px; border: none; border-radius: 13px; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; text-align: center; line-height: 50px; transition: all .15s; }
+.btn-pri { background: var(--blue); color: #FFF; }
+.btn-sec { background: var(--card); color: var(--text); font-weight: 500; }
+.btn-out { background: transparent; color: var(--blue); font-size: 14px; font-weight: 500; }
+
+/* Inputs */
+.inp { width: 100%; height: 46px; background: var(--card); border: none; border-radius: 11px; padding: 0 14px; font-size: 14px; color: var(--text); font-family: inherit; outline: none; }
+.inp:focus { background: var(--white); box-shadow: 0 0 0 3px rgba(91,127,255,.12); }
+.inp::placeholder { color: var(--text-weak); }
+.txa { width: 100%; min-height: 80px; background: var(--card); border: none; border-radius: 11px; padding: 12px 14px; font-size: 14px; color: var(--text); font-family: inherit; outline: none; resize: vertical; }
+.txa:focus { background: var(--white); box-shadow: 0 0 0 3px rgba(91,127,255,.12); }
+.txa::placeholder { color: var(--text-weak); }
+
+/* Progress */
+.prog { height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.prog-f { height: 100%; border-radius: 99px; transition: width .4s; }
+.f-blue  { background: var(--blue); }
+.f-red   { background: var(--red); }
+.f-amber { background: var(--amber); }
+.f-green { background: var(--green); }
+
+/* Tags */
+.tag { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+.tag-m { background: var(--green-bg); color: #28A745; }
+.tag-i { background: var(--amber-bg); color: #D9821A; }
+.tag-w { background: var(--red-bg);   color: #E04050; }
+
+/* Misc */
+.flex   { display: flex; gap: 10px; }
+.flex-1 { flex: 1; }
+.flex-w { flex-wrap: wrap; }
+.f-center { align-items: center; }
+.f-start { align-items: flex-start; }
+.tc    { text-align: center; }
+.mt-4  { margin-top: 4px; }
+.mt-6  { margin-top: 6px; }
+.mt-8  { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mt-14 { margin-top: 14px; }
+.mt-16 { margin-top: 16px; }
+.mt-20 { margin-top: 20px; }
+.mt-24 { margin-top: 24px; }
+.mt-32 { margin-top: 32px; }
+.mt-a  { margin-top: auto; }
+.mb-4  { margin-bottom: 4px; }
+.mb-8  { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-16 { margin-bottom: 16px; }
+.gap-6  { gap: 6px; }
+.gap-8  { gap: 8px; }
+.gap-12 { gap: 12px; }
+
+/* Grade grid */
+.g-g { display: grid; grid-template-columns: repeat(6,1fr); gap: 6px; }
+.g-i { padding: 8px 0; text-align: center; background: var(--card); border-radius: 8px; font-size: 11px; color: var(--text); cursor: pointer; border: 2px solid transparent; transition: all .15s; }
+.g-i.sel { background: var(--blue-bg); border-color: var(--blue); color: #3D5FD9; font-weight: 600; }
+
+/* Chip */
+.chip { padding: 8px 14px; background: var(--card); border-radius: 8px; font-size: 12px; color: var(--text); cursor: pointer; border: 2px solid transparent; transition: all .15s; }
+.chip.sel { background: var(--blue-bg); border-color: var(--blue); color: #3D5FD9; font-weight: 600; }
+
+/* Check-row */
+.ckr { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; font-size: 11px; color: var(--text); cursor: pointer; }
+.ckb { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--text-weak); flex-shrink: 0; margin-top: 1px; position: relative; }
+.ckb.on { background: var(--blue); border-color: var(--blue); }
+.ckb.on::after { content:"✓"; color:#FFF; font-size:10px; font-weight:700; position:absolute; top:50%;left:50%; transform:translate(-50%,-50%); }
+
+/* Cascade */
+.cas { flex:1; height: 42px; background: var(--card); border: none; border-radius: 9px; padding: 0 10px; font-size: 13px; color: var(--text); font-family: inherit; appearance: none; outline: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23949AAD' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; }
+
+/* Bottom nav */
+.bnav { display: flex; justify-content: space-around; align-items: center; height: 60px; background: var(--white); border-top: 1px solid var(--border); padding: 0 10px; border-radius: 0 0 36px 36px; margin: auto -20px -28px; flex-shrink: 0; }
+.bnav .ni { display:flex; flex-direction:column; align-items:center; font-size:10px; color:var(--text-weak); cursor:pointer; }
+.bnav .ni.on { color:var(--blue); }
+.bnav .ni .ic { font-size:20px; margin-bottom:1px; }
+
+/* Glass accent */
+.glass { background: linear-gradient(180deg, var(--blue-bg), rgba(91,127,255,.02)); }
+
+/* Divider */
+.dv { height: 1px; background: var(--border); margin: 14px 0; }
+
+/* Dots */
+.dots { display:flex; gap:8px; justify-content:center; }
+.dot { width:7px; height:7px; border-radius:50%; background:var(--border); }
+.dot.done { background:var(--blue); }
+.dot.cur  { background:var(--white); border:2px solid var(--blue); width:5px; height:5px; }
+
+/* Section */
+.sec { font-size: 10px; font-weight: 700; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1.5px; margin: 16px 0 8px; }
+
+/* Stat */
+.stat-row { display: flex; gap: 10px; }
+.stat-card { flex:1; text-align: center; padding: 14px; border-radius: 14px; }
+.stat-card .big { font-size: 30px; font-weight: 800; }
+.stat-card .lbl { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+
+/* KP row */
+.kpr { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.kpr .nm { flex:2; font-size:12px; color:var(--text); }
+.kpr .bar{ flex:3; }
+.kpr .pct{ flex:0 0 36px; font-size:12px; font-weight:600; text-align:right; }
+
+/* Replaceable icon placeholder */
+.ic-pl {
+  width: 68px; height: 68px; border-radius: 50%; margin: 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 32px;
+  /* background-image: url('user_data/{name}/icons/logo.png'); background-size: cover; */
+  background: linear-gradient(135deg, rgba(91,127,255,.25), rgba(255,91,107,.20));
+}
+
+/* Highlight strip */
+.hl { padding: 8px 12px; margin: 6px -2px; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.hl-b { background: var(--blue-bg); }
+.hl-r { background: var(--red-bg); }
+
+/* Inline label */
+.inl-lbl {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  flex-shrink: 0; white-space: nowrap;
+}
+.inl-lbl.err { background: var(--red-bg2); color: #D93848; }
+.inl-lbl.ans { background: var(--blue-bg2); color: #3D5FD9; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">错题<span>Pro</span></div>
+  <a class="active" onclick="show('p1')">1. 合规弹窗</a>
+  <a onclick="show('p2')">2. 初始设置</a>
+  <a onclick="show('p3')">3. 首页</a>
+  <a onclick="show('p4')">4. 录入错题</a>
+  <a onclick="show('p5')">5. OCR 确认</a>
+  <a onclick="show('p6')">6. AI 诊断结果</a>
+  <a onclick="show('p7')">7. 复习做题</a>
+  <a onclick="show('p7b')">7b. 作答反馈</a>
+  <a onclick="show('p8')">8. 每日完成</a>
+  <a onclick="show('p9')">9. 知识版图</a>
+  <a onclick="show('p10')">10. 家长报告</a>
+</nav>
+
+<main>
+<div class="phone" id="phone">
+
+<!-- ====== P1 合规弹窗 (REDESIGN: smaller text, bottom-aligned) ====== -->
+<div class="pg active scroll" id="p1">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="tc" style="padding-top:48px;">
+  <!-- REPLACEABLE ICON: overwrite with user_data/{name}/icons/logo.png -->
+  <div class="ic-pl" style="width:80px;height:80px;font-size:38px;">✏️</div>
+</div>
+<div class="tc mt-20">
+  <div class="h1" style="font-size:24px;">欢迎使用错题Pro</div>
+  <div class="sub mt-6">请阅读并同意以下内容</div>
+</div>
+
+<!-- Spacer pushes checkboxes to bottom -->
+<div class="mt-a"></div>
+
+<div class="crd mt-a" style="background:var(--card); border-radius:14px; padding:14px 16px;">
+  <div class="ckr" style="border-bottom:1px solid var(--border); padding-bottom:6px;">
+    <div class="ckb on"></div>
+    <div>我已阅读并同意 <span style="color:var(--blue);">《用户服务协议》</span></div>
+  </div>
+  <div class="ckr" style="border-bottom:1px solid var(--border); padding:6px 0;">
+    <div class="ckb on"></div>
+    <div>我已阅读并同意 <span style="color:var(--blue);">《隐私政策》</span></div>
+  </div>
+  <div class="ckr" style="padding-top:6px;">
+    <div class="ckb on"></div>
+    <div>我是监护人 / 我已满14周岁 <span style="font-size:10px;color:var(--text-weak);">未满14周岁须由监护人指导</span></div>
+  </div>
+</div>
+<button class="btn btn-pri mt-12">同意并开始</button>
+<div class="tc sm mt-8 mb-8">全部勾选后按钮才可点击</div>
+</div>
+
+<!-- ====== P2 初始设置 (REDESIGN: smaller grade text, subject→version cascade) ====== -->
+<div class="pg scroll" id="p2">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="h1 mt-8" style="font-size:22px;">完善信息，为你精准出题</div>
+
+<div class="sec">昵称</div>
+<input class="inp" placeholder="输入昵称（非真实姓名）">
+
+<div class="sec">所在地区</div>
+<div class="flex">
+  <select class="cas"><option>广东省</option></select>
+  <select class="cas"><option>广州市</option></select>
+  <select class="cas"><option>天河区</option></select>
+</div>
+
+<div class="sec">在读年级</div>
+<div class="g-g">
+  <div class="g-i">小一</div><div class="g-i">小二</div><div class="g-i">小三</div>
+  <div class="g-i sel">小四</div><div class="g-i">小五</div><div class="g-i">小六</div>
+  <div class="g-i">初一</div><div class="g-i">初二</div><div class="g-i">初三</div>
+  <div class="g-i">高一</div><div class="g-i">高二</div><div class="g-i">高三</div>
+</div>
+
+<div class="sec">科目（先选择，后配置对应教材版本）</div>
+<div class="flex flex-w gap-6">
+  <div class="chip sel" onclick="this.classList.toggle('sel')">☑ 数学</div>
+  <div class="chip" onclick="this.classList.toggle('sel')">☐ 英语</div>
+  <div class="chip" onclick="this.classList.toggle('sel')">☐ 语文</div>
+</div>
+
+<!-- Per-subject curriculum version -->
+<div style="margin-top:12px;">
+  <div class="sm mb-6" style="color:var(--text); font-weight:500;">数学 · 教材版本</div>
+  <div class="flex flex-w gap-6">
+    <div class="chip sel">人教版</div><div class="chip">北师大版</div><div class="chip">苏教版</div>
+    <div class="chip">沪教版</div><div class="chip">其他</div>
+  </div>
+</div>
+<div style="margin-top:10px;">
+  <div class="sm mb-6" style="color:var(--text-weak);">英语 · 教材版本</div>
+  <div class="flex flex-w gap-6">
+    <div class="chip" style="opacity:.5;">人教版</div><div class="chip" style="opacity:.5;">外研版</div><div class="chip" style="opacity:.5;">牛津版</div>
+  </div>
+</div>
+
+<button class="btn btn-pri mt-24">确认，开始使用</button>
+<div class="sm tc mt-12" style="color:var(--text-weak);">后续可在设置中修改</div>
+</div>
+
+<!-- ====== P3 首页 (REDESIGN: bottom nav at page bottom) ====== -->
+<div class="pg" id="p3" style="padding-bottom:0;">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div style="padding:0 20px;">
+<div class="h1 mt-8">你好，小明 👋</div>
+<div class="sub">今日有 <b style="color:var(--text);">2</b> 个知识点待复习</div>
+
+<div class="crd glass mt-16" style="border:1px solid rgba(91,127,255,.08);">
+  <div class="h3 mb-12">📌 今日待复习</div>
+  <div class="mb-10">
+    <div class="kpr" style="padding:0;"><span class="nm" style="font-weight:500;">分数加减法</span><span class="pct c-red">45%</span></div>
+    <div class="prog mt-4"><div class="prog-f f-red" style="width:45%"></div></div>
+    <div class="sm mt-3">上次: 3天前</div>
+  </div>
+  <div class="mb-14">
+    <div class="kpr" style="padding:0;"><span class="nm" style="font-weight:500;">面积计算</span><span class="pct c-amber">62%</span></div>
+    <div class="prog mt-4"><div class="prog-f f-amber" style="width:62%"></div></div>
+    <div class="sm mt-3">上次: 7天前</div>
+  </div>
+  <button class="btn btn-pri" style="height:42px;font-size:14px;">开始今日复习</button>
+</div>
+
+<div class="flex mt-12">
+  <div class="crd crd-ns flex-1 tc" style="background:rgba(91,127,255,.05);">
+    <div style="font-size:26px;">📷</div>
+    <div style="font-size:12px;font-weight:600;color:var(--text);">录入错题</div>
+  </div>
+  <div class="crd crd-ns flex-1 tc" style="background:rgba(255,91,107,.05);">
+    <div style="font-size:26px;">🗺️</div>
+    <div style="font-size:12px;font-weight:600;color:var(--text);">知识版图</div>
+  </div>
+</div>
+<div class="flex">
+  <div class="crd crd-ns flex-1 tc" style="background:rgba(91,127,255,.03);">
+    <div style="font-size:26px;">📊</div>
+    <div style="font-size:12px;font-weight:600;color:var(--text);">学习报告</div>
+  </div>
+  <div class="crd crd-ns flex-1 tc" style="background:rgba(255,91,107,.03);">
+    <div style="font-size:26px;">📋</div>
+    <div style="font-size:12px;font-weight:600;color:var(--text);">错题回顾</div>
+  </div>
+</div>
+</div>
+
+<!-- Spacer pushes bnav to bottom -->
+<div class="mt-a"></div>
+<div class="bnav" style="margin:0;">
+  <div class="ni on"><span class="ic">🏠</span>首页</div>
+  <div class="ni"><span class="ic">📝</span>录入</div>
+  <div class="ni"><span class="ic">🗺️</span>版图</div>
+  <div class="ni"><span class="ic">👤</span>我的</div>
+</div>
+</div>
+
+<!-- ====== P4 录入错题 ====== -->
+<div class="pg scroll" id="p4">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 返回</span><span class="title">录入错题</span><span class="spacer"></span></div>
+
+<div class="sec">学科</div>
+<div class="flex gap-6">
+  <div class="chip sel">数学</div><div class="chip">英语</div><div class="chip">语文</div>
+</div>
+
+<div class="sec">方式</div>
+<div class="flex gap-6">
+  <div class="chip sel" style="flex:1;text-align:center;">📷 拍照识别</div>
+  <div class="chip" style="flex:1;text-align:center;">✏️ 手动输入</div>
+</div>
+
+<div class="crd crd-ns tc mt-10" style="background:var(--card);border:2px dashed var(--border);padding:32px 16px;">
+  <div style="font-size:28px;color:var(--text-weak);">📷</div>
+  <div class="sub mt-6">点击拍照 / 选择图片</div>
+  <div class="sm">请将题目拍清楚</div>
+</div>
+
+<div class="crd mt-10" style="background:var(--card);">
+  <div class="sm mb-6" style="text-transform:uppercase;letter-spacing:.5px;">或直接输入</div>
+  <textarea class="txa" style="background:var(--white);" placeholder="输入题目内容..."></textarea>
+  <input class="inp mt-8" style="background:var(--white);" placeholder="输入你的错误答案">
+</div>
+
+<button class="btn btn-pri mt-12">提交，开始诊断</button>
+</div>
+
+<!-- ====== P5 OCR确认 ====== -->
+<div class="pg scroll" id="p5">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 返回</span><span class="title">确认识别结果</span><span class="spacer"></span></div>
+
+<div class="crd flex f-center gap-10" style="background:var(--card);">
+  <div style="width:40px;height:40px;background:#ddd;border-radius:7px;flex-shrink:0;">🖼️</div>
+  <div>
+    <div class="h3" style="font-size:13px;">已识别以下内容</div>
+    <div class="sm">请检查并修改</div>
+  </div>
+</div>
+
+<div class="mt-12">
+  <div class="sm mb-6">题目</div>
+  <textarea class="txa" style="background:var(--white);border:1px solid var(--border);">小明买了3/4千克苹果，吃了1/4千克，还剩多少千克？</textarea>
+</div>
+<div class="mt-8">
+  <div class="sm mb-6">你的错误答案</div>
+  <input class="inp" style="background:var(--white);border:1px solid var(--border);" value="1/2">
+</div>
+
+<div class="flex gap-6 mt-16">
+  <button class="btn btn-pri flex-1">确认提交</button>
+  <button class="btn btn-sec flex-1">改为手动输入</button>
+</div>
+</div>
+
+<!-- ====== P6 AI诊断 (REDESIGNED per user feedback) ====== -->
+<div class="pg scroll" id="p6">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 返回</span><span class="title">诊断结果</span><span class="spacer"></span></div>
+
+<!-- Clean diagnosis card -->
+<div class="crd glass mt-8" style="border:1px solid rgba(91,127,255,.06); padding:20px;">
+  <div class="sm mb-10" style="text-transform:uppercase;letter-spacing:1.5px;">AI 诊断</div>
+
+  <!-- Knowledge point - smaller -->
+  <div class="h3" style="font-size:16px; color:var(--text);">分数的减法（同分母）</div>
+
+  <!-- 思路错误 (left label) + explanation -->
+  <div class="flex f-start gap-8 mt-12">
+    <span class="inl-lbl err">思路错误</span>
+    <span class="sub" style="line-height:1.6;">学生将分子分母分别相减，说明没有理解同分母分数减法 <b style="color:var(--text);">只减分子、分母不变</b></span>
+  </div>
+
+  <!-- 正确答案 (left label with blue bg) + answer -->
+  <div class="flex f-start gap-8 mt-10">
+    <span class="inl-lbl ans">正确答案</span>
+    <span class="sub" style="line-height:1.6; font-weight:600; color:var(--text);">2/4 = 1/2 千克</span>
+  </div>
+</div>
+
+<!-- Compact original problem -->
+<div class="crd mt-8" style="background:var(--card); padding:12px 14px;">
+  <div class="flex f-center gap-6">
+    <span class="sm" style="flex-shrink:0;">📋 原题</span>
+    <span class="sub" style="flex:1;">小明买3/4千克苹果，吃1/4千克，剩？</span>
+    <span class="sm" style="color:var(--red);flex-shrink:0;">你答: 1/2</span>
+  </div>
+</div>
+
+<button class="btn btn-pri mt-14">生成变式题，开始练习</button>
+<button class="btn btn-out mt-6" style="width:100%;">仅录入，稍后练习</button>
+</div>
+
+<!-- ====== P7 复习做题 ====== -->
+<div class="pg" id="p7" style="padding-bottom:0;">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back" style="color:var(--red);">← 退出</span><span class="title">今日复习 第1/4题</span><span class="tag tag-i">仍需加强</span></div>
+<div style="padding:0 20px;">
+<div class="crd mt-8" style="padding:22px 18px;">
+  <div class="tag tag-m mb-12">🟢 热身题</div>
+  <div class="body" style="font-size:16px;">小红有5/6米长的彩带，用去了1/6米，还剩多少米？</div>
+  <input class="inp mt-14" style="background:var(--card);" placeholder="输入你的答案">
+  <button class="btn btn-pri mt-14">提交答案</button>
+</div>
+<div class="dots mt-20">
+  <div class="dot cur"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+</div>
+<div class="tc sm mt-6">进度 1/4</div>
+</div>
+</div>
+
+<!-- ====== P7b 作答反馈 (text 10% smaller) ====== -->
+<div class="pg scroll" id="p7b">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 继续</span><span class="title">今日复习 第1/4题</span><span class="spacer"></span></div>
+
+<!-- Correct -->
+<div class="crd tc mt-8" style="padding:24px 18px; background:rgba(52,199,89,.04);">
+  <div style="font-size:40px;">✅</div>
+  <div class="h2 c-green mt-6">回答正确！</div>
+  <div class="sub mt-6" style="font-size:12px; line-height:1.6;">你对同分母分数的减法理解得很透彻，<br>4/6化简成2/3也很到位。</div>
+  <button class="btn btn-pri mt-12" style="width:auto;padding:0 36px;margin:0 auto;">继续下一题</button>
+</div>
+
+<div class="dv" style="margin:18px 0;"></div>
+
+<!-- Wrong -->
+<div class="crd tc" style="padding:24px 18px; background:rgba(255,91,107,.04);">
+  <div style="font-size:40px;">💪</div>
+  <div class="h2 c-red mt-6">还差一点点</div>
+  <div class="sub mt-6" style="font-size:12px; line-height:1.6;">方向是对的，但计算到第二步时<br>需要注意 <b style="color:var(--text);">分母保持不变</b>。试试看？</div>
+  <div class="hl hl-b mt-10 tc" style="text-align:left;">
+    <span style="font-weight:600;color:var(--blue);font-size:12px;">💡 提示</span>
+    <span class="sub" style="margin-left:4px;font-size:12px;">同分母分数相减，只减分子，分母不变</span>
+  </div>
+  <button class="btn btn-sec mt-10" style="width:auto;padding:0 36px;margin:0 auto;">继续下一题</button>
+</div>
+
+<div class="dots mt-16">
+  <div class="dot done"></div><div class="dot cur"></div><div class="dot"></div><div class="dot"></div>
+</div>
+<div class="tc sm mt-6">进度 1/4</div>
+</div>
+
+<!-- ====== P8 每日完成 ====== -->
+<div class="pg scroll" id="p8">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="tc mt-24">
+  <!-- REPLACEABLE ICON: user_data/{name}/icons/complete.png -->
+  <div class="ic-pl" style="width:84px;height:84px;font-size:40px;">🎉</div>
+</div>
+<div class="tc mt-16">
+  <div class="h1" style="font-size:24px;">今日复习完成！</div>
+</div>
+
+<div class="flex mt-20">
+  <div class="crd crd-ns flex-1 tc" style="background:var(--blue-bg);">
+    <div class="num c-blue" style="font-size:30px;">3/4</div>
+    <div class="sm">正确</div>
+  </div>
+  <div class="crd crd-ns flex-1 tc" style="background:var(--red-bg);">
+    <div class="num c-red" style="font-size:30px;">+1</div>
+    <div class="sm">知识点已征服</div>
+  </div>
+</div>
+
+<div class="crd mt-14">
+  <div class="h3 mb-10">📊 知识版图更新</div>
+  <div class="sub mb-6">本学期已征服 <b style="color:var(--text);">9/18</b></div>
+  <div class="prog"><div class="prog-f f-blue" style="width:50%"></div></div>
+  <div style="text-align:right;font-size:11px;color:var(--blue);font-weight:600;margin-top:3px;">50%</div>
+  <div class="mt-10 flex f-center gap-6">
+    <span>✅</span>
+    <span class="sub">分数的减法(同分母) → <span class="tag tag-m">观察池</span></span>
+  </div>
+</div>
+
+<button class="btn btn-pri mt-12">再来一组</button>
+<button class="btn btn-sec mt-6">返回首页</button>
+</div>
+
+<!-- ====== P9 知识版图 ====== -->
+<div class="pg scroll" id="p9">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 返回</span><span class="title">知识版图</span><span class="spacer"></span></div>
+<div class="tc mb-12">
+  <div class="sub">已征服 <b style="color:var(--text);">9/18</b> · 掌握度 <b class="c-blue">76%</b></div>
+</div>
+
+<div style="margin-bottom:12px;">
+  <div class="sm mb-6" style="text-transform:uppercase;letter-spacing:1px;">数与运算</div>
+  <div class="crd crd-ns" style="padding:12px 14px;">
+    <div class="kpr">
+      <span class="nm">加减法</span><span class="bar"><div class="prog"><div class="prog-f f-blue" style="width:92%"></div></div></span>
+      <span class="pct c-blue">92%</span><span class="tag tag-m">熟练</span>
+    </div>
+    <div style="height:1px;background:var(--border);margin:7px 0;"></div>
+    <div class="kpr">
+      <span class="nm">乘除法</span><span class="bar"><div class="prog"><div class="prog-f f-blue" style="width:83%"></div></div></span>
+      <span class="pct c-blue">83%</span><span class="tag tag-m">基本</span>
+    </div>
+  </div>
+</div>
+
+<div style="margin-bottom:12px;">
+  <div class="sm mb-6" style="text-transform:uppercase;letter-spacing:1px;">分数</div>
+  <div class="crd crd-ns" style="padding:12px 14px; background:var(--red-bg);">
+    <div class="kpr">
+      <span class="nm">分数加减法</span><span class="bar"><div class="prog"><div class="prog-f f-red" style="width:45%"></div></div></span>
+      <span class="pct c-red">45%</span><span class="tag tag-w">仍未</span>
+    </div>
+    <div style="height:1px;background:rgba(0,0,0,.05);margin:7px 0;"></div>
+    <div class="kpr">
+      <span class="nm">分数乘除法</span><span class="bar"><div class="prog"><div class="prog-f f-amber" style="width:72%"></div></div></span>
+      <span class="pct c-amber">72%</span><span class="tag tag-i">加强</span>
+    </div>
+  </div>
+</div>
+
+<div style="margin-bottom:12px;">
+  <div class="sm mb-6" style="text-transform:uppercase;letter-spacing:1px;">几何</div>
+  <div class="crd crd-ns" style="padding:12px 14px;">
+    <div class="kpr">
+      <span class="nm">面积计算</span><span class="bar"><div class="prog"><div class="prog-f f-amber" style="width:62%"></div></div></span>
+      <span class="pct c-amber">62%</span><span class="tag tag-i">加强</span>
+    </div>
+  </div>
+</div>
+
+<div class="flex tc sm gap-6 mt-12" style="justify-content:center;color:var(--text-weak);">
+  <span>🟢 熟练</span><span>🟡 加强</span><span>🔴 攻克</span>
+</div>
+</div>
+
+<!-- ====== P10 家长报告 (REDESIGNED) ====== -->
+<div class="pg scroll" id="p10">
+<div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+<div class="navbar"><span class="back">← 返回</span><span class="title">学习报告</span><span class="spacer"></span></div>
+<div class="tc"><span class="sm">小明的数学 · 第8周（期中）</span></div>
+
+<!-- Hero -->
+<div class="crd tc mt-8" style="background:linear-gradient(180deg,rgba(91,127,255,.06),rgba(255,91,107,.03)); padding:22px;">
+  <div class="sm" style="text-transform:uppercase;letter-spacing:1.5px;">当前掌握度</div>
+  <div class="num c-blue mt-4" style="font-size:52px;">76%</div>
+  <div class="h3 c-blue mt-2">↑ +4% <span class="sub" style="font-weight:400;">较期中前</span></div>
+  <div class="sm mt-2">基本掌握 · 稳步进步中</div>
+</div>
+
+<!-- 需要关注 -->
+<div class="sec" style="margin-top:20px;">需要重点关注</div>
+
+<div class="crd mt-6" style="border-left:3px solid rgba(255,91,107,.4);">
+  <div class="flex f-center gap-6 mb-6">
+    <span class="h3" style="font-size:14px;">分数加减法</span>
+    <span style="font-size:22px;font-weight:800;color:var(--red);">45%</span>
+    <span class="tag tag-w">仍未掌握</span>
+  </div>
+  <div class="prog mb-6"><div class="prog-f f-red" style="width:45%"></div></div>
+  <div class="sm c-blue mb-8">↑+10% 趋势向上，练习在起作用</div>
+
+  <div class="hl hl-b" style="display:flex;align-items:flex-start;gap:6px;">
+    <span>🔧</span>
+    <div>
+      <div style="font-weight:600;font-size:12px;color:var(--blue);">用切披萨帮孩子理解"通分"</div>
+      <div class="sm">花15分钟就够了</div>
+    </div>
+  </div>
+  <div class="hl hl-b mt-4" style="display:flex;align-items:flex-start;gap:6px;">
+    <span>💬</span>
+    <div>
+      <div style="font-size:12px;color:var(--text);">"最近分数加减法有没有觉得比之前顺手了？"</div>
+    </div>
+  </div>
+  <div class="sm mt-6">📅 本周安排 2-3 次 · 每次5分钟</div>
+</div>
+
+<div class="crd mt-6" style="border-left:3px solid rgba(255,159,67,.4);">
+  <div class="flex f-center gap-6 mb-6">
+    <span class="h3" style="font-size:14px;">面积计算</span>
+    <span style="font-size:22px;font-weight:800;color:var(--amber);">62%</span>
+    <span class="tag tag-i">仍需加强</span>
+  </div>
+  <div class="prog mb-6"><div class="prog-f f-amber" style="width:62%"></div></div>
+  <div class="sm c-red mb-8">↓-8% 在下滑，需要警惕</div>
+
+  <div class="hl hl-b" style="display:flex;align-items:flex-start;gap:6px;">
+    <span>🔧</span>
+    <div>
+      <div style="font-weight:600;font-size:12px;color:var(--blue);">让孩子量桌子长宽，用不同单位算面积</div>
+      <div class="sm">周末花20分钟</div>
+    </div>
+  </div>
+  <div class="sm mt-6">📅 周末安排一次10分钟集中练习</div>
+</div>
+
+<!-- 进步 -->
+<div class="sec">进步最大</div>
+<div class="crd glass tc mt-6" style="border:1px solid rgba(91,127,255,.08);padding:14px;">
+  <div style="font-size:16px;">✨</div>
+  <div class="h3 c-blue mt-2">乘除法 83% ↑+12%</div>
+  <div class="sm">可以适当表扬孩子的坚持</div>
+</div>
+
+<div class="mt-14">
+  <button class="btn btn-sec mb-6">📥 导出完整报告（PDF）</button>
+  <button class="btn btn-out" style="width:100%;">📋 浏览错题原文与练习记录</button>
+</div>
+<div class="tc sm mt-10 mb-4" style="color:var(--text-weak);">📅 下次报告：本周末</div>
+</div>
+
+</div><!-- phone -->
+</main>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.pg').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  var el = document.querySelector('nav a[onclick="show(\''+id+'\')"]');
+  if(el) el.classList.add('active');
+  document.getElementById('phone').scrollTop = 0;
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>错题Pro</title>
+<style>
+:root {
+  --blue: #5B7FFF; --blue-bg: rgba(91,127,255,.06);
+  --red: #FF5B6B; --red-bg: rgba(255,91,107,.07);
+  --amber: #FF9F43; --text: #1A1C24; --text-sub: #5E6372; --text-weak: #949AAD;
+  --bg: #F5F6FA; --white: #FFFFFF; --card: #EEF0F5; --border: #E4E6EC;
+  --green: #34C759; --green-bg: rgba(52,199,89,.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; background:var(--bg); min-height:100vh; }
+.page { max-width:420px; margin:0 auto; padding:20px 20px 100px; }
+.topbar { padding:12px 20px 0; display:flex; justify-content:flex-end; }
+.topbar a { font-size:12px; color:var(--text-weak); text-decoration:none; }
+.greeting { font-size:26px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.sub { font-size:13px; color:var(--text-sub); margin-bottom:20px; }
+.card { background:var(--white); border-radius:18px; padding:18px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,.03); }
+.card-blue { border:1px solid rgba(91,127,255,.08); }
+.card-red { border:1px solid rgba(255,91,107,.08); }
+.h3 { font-size:15px; font-weight:600; color:var(--text); }
+.prog { height:5px; background:var(--border); border-radius:99px; overflow:hidden; margin:4px 0; }
+.prog-f { height:100%; border-radius:99px; }
+.f-blue { background:var(--blue); } .f-red { background:var(--red); } .f-amber { background:var(--amber); }
+.kpr { display:flex; align-items:center; gap:8px; padding:4px 0; }
+.kpr .nm { flex:2; font-size:13px; color:var(--text); font-weight:500; }
+.kpr .pct { font-size:13px; font-weight:600; }
+.sm { font-size:12px; color:var(--text-weak); }
+.btn { display:block; width:100%; height:44px; border:none; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; text-align:center; line-height:44px; text-decoration:none; }
+.btn-pri { background:var(--blue); color:#FFF; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
+.grid-item { background:var(--white); border-radius:16px; padding:20px 16px; text-align:center; text-decoration:none; display:block; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+.grid-item .icon { font-size:28px; margin-bottom:6px; }
+.grid-item .label { font-size:13px; font-weight:600; color:var(--text); }
+.grid-item .hint { font-size:11px; color:var(--text-weak); margin-top:2px; }
+.bnav { position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:420px; display:flex; justify-content:space-around; background:var(--white); border-top:1px solid var(--border); height:64px; align-items:center; z-index:100; }
+.bnav a { display:flex; flex-direction:column; align-items:center; font-size:10px; color:var(--text-weak); text-decoration:none; gap:2px; }
+.bnav a .ic { font-size:20px; }
+.bnav a.on { color:var(--blue); }
+.tag { display:inline-block; padding:2px 8px; border-radius:5px; font-size:10px; font-weight:600; }
+.tag-w { background:var(--red-bg); color:#E04050; }
+.tag-i { background:rgba(255,159,67,.08); color:#D9821A; }
+.tag-m { background:var(--green-bg); color:#28A745; }
+</style>
+</head>
+<body>
+<div class="topbar"><a href="/logout">退出</a></div>
+<div class="page">
+  <div class="greeting">你好，{{ student }} 👋</div>
+  <div class="sub">{% if due_count %}今日有 <b style="color:var(--text);">{{ due_count }}</b> 个知识点等待复习{% else %}今日无需复习 ✅{% endif %}</div>
+
+  {% if due_list %}
+  <div class="card card-blue">
+    <div class="h3" style="margin-bottom:12px;">📌 今日待复习</div>
+    {% for kp in due_list %}
+    <div style="margin-bottom:10px;">
+      <div class="kpr"><span class="nm">{{ kp.knowledge_point }}</span><span class="pct" style="color:{{ '#FF5B6B' if kp.mastery_score < 0.4 else '#FF9F43' if kp.mastery_score < 0.7 else '#34C759' }}">{{ (kp.mastery_score*100)|int }}%</span></div>
+      <div class="prog"><div class="prog-f {{ 'f-red' if kp.mastery_score < 0.4 else 'f-amber' if kp.mastery_score < 0.7 else 'f-blue' }}" style="width:{{ (kp.mastery_score*100)|int }}%"></div></div>
+    </div>
+    {% endfor %}
+    <a href="/mistake/new" class="btn btn-pri" style="margin-top:8px;">开始复习</a>
+  </div>
+  {% endif %}
+
+  <div class="grid2">
+    <a href="/mistake/new" class="grid-item" style="background:rgba(91,127,255,.04);">
+      <div class="icon">📝</div>
+      <div class="label">录入错题</div>
+      <div class="hint">拍照 / 文字输入</div>
+    </a>
+    <a href="/map" class="grid-item" style="background:rgba(255,91,107,.04);">
+      <div class="icon">🗺️</div>
+      <div class="label">知识版图</div>
+      <div class="hint">已征服 {{ conquered }}/{{ total_kp }}</div>
+    </a>
+    <a href="/report" class="grid-item" style="background:rgba(91,127,255,.02);">
+      <div class="icon">📊</div>
+      <div class="label">学习报告</div>
+      <div class="hint">掌握度分析</div>
+    </a>
+    <a href="/mistakes" class="grid-item" style="background:rgba(255,91,107,.02);">
+      <div class="icon">📋</div>
+      <div class="label">错题回顾</div>
+      <div class="hint">全部记录</div>
+    </a>
+  </div>
+</div>
+
+<nav class="bnav">
+  <a href="/home" class="on"><span class="ic">🏠</span>首页</a>
+  <a href="/mistake/new"><span class="ic">📝</span>录入</a>
+  <a href="/map"><span class="ic">🗺️</span>版图</a>
+  <a href="/report"><span class="ic">📊</span>报告</a>
+</nav>
+</body>
+<script>document.querySelectorAll('.bnav a').forEach(a=>{a.addEventListener('click',function(e){if(this.href===location.href){e.preventDefault();location.reload()}});if(location.pathname===new URL(a.href).pathname)a.classList.add('on')})</script>
+</html>

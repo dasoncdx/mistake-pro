@@ -1,0 +1,9 @@
+.env
+*.pyc
+__pycache__/
+*.db
+user_data/
+.venv/
+audit_report.json
+.session
+.DS_Store

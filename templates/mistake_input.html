@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>录入错题 - 错题Pro</title>
+<style>
+:root {
+  --blue: #5B7FFF; --blue-bg: rgba(91,127,255,.06);
+  --red: #FF5B6B; --text: #1A1C24; --text-sub: #5E6372; --text-weak: #949AAD;
+  --bg: #F5F6FA; --white: #FFFFFF; --card: #EEF0F5; --border: #E4E6EC;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; background:var(--bg); min-height:100vh; }
+.page { max-width:420px; margin:0 auto; padding:20px 20px 100px; }
+.navbar { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+.navbar a { font-size:14px; color:var(--blue); text-decoration:none; }
+.navbar .title { font-size:16px; font-weight:600; color:var(--text); flex:1; text-align:center; margin-right:20px; }
+.label { font-size:11px; font-weight:700; color:var(--text-sub); text-transform:uppercase; letter-spacing:1.5px; margin:16px 0 6px; }
+.inp, .txa { width:100%; background:var(--white); border:1px solid var(--border); border-radius:12px; padding:12px 14px; font-size:14px; color:var(--text); outline:none; font-family:inherit; margin-bottom:8px; }
+.txa { min-height:90px; resize:vertical; }
+.inp:focus, .txa:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(91,127,255,.08); }
+.inp::placeholder, .txa::placeholder { color:var(--text-weak); }
+.btn { display:block; width:100%; height:50px; border:none; border-radius:13px; font-size:15px; font-weight:600; cursor:pointer; text-align:center; }
+.btn-pri { background:var(--blue); color:#FFF; }
+.loading { display:none; text-align:center; padding:40px; }
+.loading .spinner { width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.result-card { background:var(--white); border-radius:18px; padding:20px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.03); }
+.tag { display:inline-block; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600; }
+.tag-err { background:var(--red-bg); color:#D93848; }
+.tag-ans { background:var(--blue-bg); color:#3D5FD9; }
+.error-msg { background:rgba(255,91,107,.07); color:var(--red); padding:12px 16px; border-radius:12px; font-size:13px; margin-bottom:12px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="navbar"><a href="/home">← 返回</a><span class="title">录入错题</span></div>
+
+  <div id="inputForm">
+    <div class="label">题目内容</div>
+    <textarea class="txa" id="problem" placeholder="在此输入题目内容..."></textarea>
+    <div class="label">你的错误答案</div>
+    <input class="inp" id="wrongAnswer" placeholder="输入考试/作业中写的答案">
+    <button class="btn btn-pri" onclick="submitMistake()" style="margin-top:20px;">提交，开始AI诊断</button>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div style="color:var(--text-sub);font-size:14px;">AI正在分析中...</div>
+    <div style="color:var(--text-weak);font-size:12px;margin-top:4px;">预计5-10秒</div>
+  </div>
+
+  <div id="result" style="display:none;"></div>
+  <div id="practice" style="display:none;"></div>
+</div>
+
+<script>
+let currentVariants = [];
+
+async function submitMistake() {
+  const problem = document.getElementById('problem').value.trim();
+  const wrong = document.getElementById('wrongAnswer').value.trim();
+  if (!problem) { alert('请输入题目'); return; }
+
+  document.getElementById('inputForm').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('result').style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('problem', problem);
+  fd.append('wrong_answer', wrong);
+  fd.append('subject', 'math');
+
+  try {
+    const resp = await fetch('/mistake/new', { method:'POST', body:fd });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); location.reload(); return; }
+    showResult(data);
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+    location.reload();
+  }
+}
+
+function showResult(data) {
+  document.getElementById('loading').style.display = 'none';
+  const d = data.diagnosis;
+  const html = `
+    <div class="result-card" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);">
+      <div style="font-size:12px;color:var(--text-sub);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:12px;">${esc(d.knowledge_point)}</div>
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">
+        <span class="tag tag-err">${esc(d.error_type)}</span>
+        <span style="font-size:13px;color:var(--text-sub);line-height:1.6;">${esc(d.error_analysis)}</span>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:8px;">
+        <span class="tag tag-ans">正确答案</span>
+        <span style="font-size:13px;color:var(--text);font-weight:600;">${esc(d.correct_answer)}</span>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--text-sub);margin:12px 0;">已生成 <b>${data.variants.length}</b> 道变式题，现在练习吗？</p>
+  `;
+  document.getElementById('result').innerHTML = html;
+  document.getElementById('result').style.display = 'block';
+  currentVariants = data.variants;
+  startPractice();
+}
+
+let practiceIdx = 0, correctCount = 0;
+
+function startPractice() {
+  practiceIdx = 0; correctCount = 0;
+  showNextQuestion();
+}
+
+function showNextQuestion() {
+  if (practiceIdx >= currentVariants.length) {
+    finishPractice();
+    return;
+  }
+  const v = currentVariants[practiceIdx];
+  const diffLabel = {easy:'🟢 热身', same:'🟡 标准', slightly_harder:'🔴 挑战'}[v.difficulty] || '';
+  document.getElementById('practice').innerHTML = `
+    <div class="result-card" style="margin-top:12px;">
+      <div style="font-size:11px;color:var(--text-sub);margin-bottom:8px;">${diffLabel} · 第${practiceIdx+1}/${currentVariants.length}题</div>
+      <div style="font-size:16px;color:var(--text);line-height:1.8;margin-bottom:16px;">${esc(v.problem)}</div>
+      <input class="inp" id="practiceAnswer" placeholder="输入你的答案" autocomplete="off">
+      <div id="practiceFeedback" style="margin-top:12px;"></div>
+      <button class="btn btn-pri" onclick="submitAnswer(${v.id})" style="margin-top:12px;" id="submitBtn">提交答案</button>
+    </div>
+  `;
+  document.getElementById('practice').style.display = 'block';
+  setTimeout(() => { const el = document.getElementById('practiceAnswer'); if(el) el.focus(); }, 100);
+}
+
+async function submitAnswer(variantId) {
+  const answer = document.getElementById('practiceAnswer').value.trim();
+  if (!answer) return;
+
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').textContent = '批改中...';
+
+  const fd = new FormData();
+  fd.append('answer', answer);
+
+  try {
+    const resp = await fetch(`/answer/${variantId}`, { method:'POST', body:fd });
+    const data = await resp.json();
+
+    const fbDiv = document.getElementById('practiceFeedback');
+    if (data.is_correct) {
+      correctCount++;
+      fbDiv.innerHTML = `<div style="background:rgba(52,199,89,.06);padding:16px;border-radius:12px;text-align:center;">
+        <div style="font-size:32px;">✅</div><div style="font-weight:700;color:var(--green);margin:4px 0;">回答正确！</div>
+        <div style="font-size:13px;color:var(--text-sub);">${esc(data.feedback)}</div></div>`;
+    } else {
+      fbDiv.innerHTML = `<div style="background:rgba(255,91,107,.04);padding:16px;border-radius:12px;text-align:center;">
+        <div style="font-size:32px;">💪</div><div style="font-weight:700;color:var(--red);margin:4px 0;">还差一点点</div>
+        <div style="font-size:13px;color:var(--text-sub);">${esc(data.feedback)}</div>
+        ${data.hint?`<div style="background:rgba(91,127,255,.06);padding:10px;border-radius:10px;margin-top:8px;text-align:left;font-size:12px;"><b>💡 提示：</b>${esc(data.hint)}</div>`:''}
+        <div style="font-size:12px;color:var(--text-weak);margin-top:8px;">正确答案：${esc(data.correct_answer)}</div></div>`;
+    }
+
+    document.getElementById('submitBtn').textContent = '继续下一题 →';
+    document.getElementById('submitBtn').onclick = () => { practiceIdx++; showNextQuestion(); };
+    document.getElementById('submitBtn').disabled = false;
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = '重试';
+  }
+}
+
+function finishPractice() {
+  document.getElementById('practice').innerHTML = `
+    <div class="result-card" style="text-align:center;">
+      <div style="font-size:40px;">🎉</div>
+      <div style="font-size:20px;font-weight:700;color:var(--text);margin:8px 0;">练习完成！</div>
+      <div style="font-size:14px;color:var(--text-sub);">正确 ${correctCount}/${currentVariants.length}</div>
+      <a href="/home" class="btn btn-pri" style="margin-top:16px;text-decoration:none;line-height:44px;">返回首页</a>
+    </div>
+  `;
+}
+
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+</script>
+</body>
+</html>
