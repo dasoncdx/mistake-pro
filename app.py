@@ -13,7 +13,6 @@ app = FastAPI(title="错题Pro")
 # ─── 纯内存存储（Zeabur文件系统只读） ──────────────────
 _users = {}    # name -> profile dict
 _sessions = {} # session cookie -> student name
-_try_write = True  # 尝试写文件一次
 
 def _hash(pw):
     s = os.urandom(16)
@@ -24,36 +23,9 @@ def _verify(pw, st):
     return hashlib.pbkdf2_hmac("sha256",pw.encode(),bytes.fromhex(sh),200000).hex()==eh
 
 def _ensure_demo():
-    if "demo" not in _users and "test" not in _users:
-        _users["demo"] = {
-            "student_name":"demo", "password_hash": _hash("demo"),
-            "province":"广东省","city":"广州市","district":"天河区",
-            "grade_level":"grade_4","curriculum_version":"人教版",
-            "subjects":["math"],"version":"basic"}
-        _users["test"] = {
-            "student_name":"test", "password_hash": _hash("test123"),
-            "province":"广东省","city":"广州市","district":"天河区",
-            "grade_level":"grade_4","curriculum_version":"人教版",
-            "subjects":["math"],"version":"basic"}
-        # 尝试建库
-        global _try_write
-        if _try_write:
-            try:
-                DATA = os.path.join(ROOT,"user_data")
-                os.makedirs(DATA,exist_ok=True)
-                for name in ["demo","test"]:
-                    d=os.path.join(DATA,name)
-                    os.makedirs(d,exist_ok=True)
-                    pf_path=os.path.join(d,"profile.json")
-                    if not os.path.exists(pf_path):
-                        json.dump(_users[name],open(pf_path,"w"),ensure_ascii=False,indent=2)
-                    from db import init_db
-                    init_db(name)
-                print("✅ 测试账号已写入文件")
-            except Exception as e:
-                _try_write = False
-                print(f"⚠️ 文件写失败，纯内存模式: {e}")
-
+    if _users: return  # already initialized
+    _users["demo"] = {"student_name":"demo","password_hash":_hash("demo"),"province":"广东省","city":"广州市","district":"天河区","grade_level":"grade_4","curriculum_version":"人教版","subjects":["math"],"version":"basic"}
+    _users["test"] = {"student_name":"test","password_hash":_hash("test123"),"province":"广东省","city":"广州市","district":"天河区","grade_level":"grade_4","curriculum_version":"人教版","subjects":["math"],"version":"basic"}
 
 _ensure_demo()
 
