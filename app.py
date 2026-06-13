@@ -379,7 +379,12 @@ async def mistakes_list(request:Request):
 # ─── 启动 ───────────────────────────────────────────
 
 if __name__=="__main__":
-    import uvicorn
+    import uvicorn, traceback
     port=int(os.environ.get("PORT",8080))
-    print(f"🚀 错题Pro 启动于端口 {port}")
-    uvicorn.run("app:app",host="0.0.0.0",port=port,log_level="info",reload=False)
+    try:
+        print(f"🚀 错题Pro 启动于端口 {port}", flush=True)
+        uvicorn.run("app:app",host="0.0.0.0",port=port,log_level="info",reload=False)
+    except Exception as e:
+        print(f"❌ 启动失败: {e}", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
