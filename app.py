@@ -35,9 +35,10 @@ def health():
 
 @app.get("/")
 def root(request: Request):
-    # 浏览器请求 → 跳转登录页；API/健康检查 → 200
+    # Zeabur 健康检查走 / 且不带 Accept → 返回 200
     accept = request.headers.get("accept","")
-    if "text/html" in accept:
+    ua = request.headers.get("user-agent","")
+    if "text/html" in accept or "Mozilla" in ua:
         return RedirectResponse("/login", 302)
     return {"ok": True, "app": "错题Pro"}
 
