@@ -42,7 +42,7 @@ def ensure_init():
 def health(): return {"ok": True}
 
 @app.get("/")
-def root(): return RedirectResponse("/login")
+def root(): return RedirectResponse("/login", 302)
 
 # ─── Session ─────────────────────────────────────
 
