@@ -114,22 +114,21 @@ async def logout(request:Request):
 
 def _auth(request):
     sid=request.cookies.get("sid",""); n=_sessions.get(sid)
-    if not n: return RedirectResponse("/login",302)
-    request.state.student=n; request.state.profile=_users.get(n,{})
-    try: from db import get_conn; request.state.conn=get_conn(n)
-    except: request.state.conn=None
-    return None
+    if not n: return RedirectResponse("/login",302), None
+    conn=None
+    try: from db import get_conn; conn=get_conn(n)
+    except: pass
+    return None, {"student":n, "profile":_users.get(n,{}), "conn":conn}
 
 # ─── 首页 ──────────────────────────────────────
 
 @app.get("/home", response_class=HTMLResponse)
 async def home(request: Request):
-    try:
-        a=_auth(request);
-        if a: return a
-        n=request.state.student
-        body = f"""<div class="pg"><div style="display:flex;justify-content:flex-end;padding:12px 0;"><a href="/logout" style="font-size:12px;color:var(--tw);">退出</a></div>
-        <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
+    redir, ctx = _auth(request)
+    if redir: return redir
+    n = ctx["student"]
+    body = f"""<div class="pg"><div style="display:flex;justify-content:flex-end;padding:12px 0;"><a href="/logout" style="font-size:12px;color:var(--tw);">退出</a></div>
+    <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
     <div style="font-size:13px;color:var(--ts);margin-bottom:20px;">开始学习吧</div>
     <div class="gr"><a href="/mistake/new" class="gi" style="background:rgba(91,127,255,.04);"><div class="ic">📝</div><div class="lb">录入错题</div></a><a href="/map" class="gi" style="background:rgba(255,91,107,.04);"><div class="ic">🗺️</div><div class="lb">知识版图</div></a><a href="/report" class="gi" style="background:rgba(91,127,255,.02);"><div class="ic">📊</div><div class="lb">学习报告</div></a><a href="/mistakes" class="gi" style="background:rgba(255,91,107,.02);"><div class="ic">📋</div><div class="lb">错题回顾</div></a></div></div>"""
     return HTMLResponse(_pg(body, "首页", ("1","","")))
@@ -145,8 +144,8 @@ function e(s){let d=document.createElement('div');d.textContent=s||'';return d.i
 
 @app.get("/mistake/new", response_class=HTMLResponse)
 async def mistake_page(request: Request):
-    a=_auth(request);
-    if a: return a
+    redir, ctx = _auth(request)
+    if redir: return redir
     body = f"""<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">录入错题</span></div>
     <div id="f"><div class="label">题目内容</div><textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
     <div class="label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
@@ -157,14 +156,14 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/new")
 async def mistake_post(request: Request):
-    a=_auth(request);
-    if a: return a
+    redir, ctx = _auth(request)
+    if redir: return redir
     form=await request.form(); problem=form.get("problem","").strip(); wrong=form.get("wrong_answer","").strip()
     if not problem: return JSONResponse({"error":"题目不能为空"},400)
-    pf=request.state.profile; grade=pf.get("grade_level","grade_4"); curriculum=pf.get("curriculum_version","人教版")
+    pf=ctx["profile"]; grade=pf.get("grade_level","grade_4"); curriculum=pf.get("curriculum_version","人教版")
     from ai import diagnose_mistake, generate_variants
     diag=diagnose_mistake(problem,wrong,grade,curriculum)
-    conn=request.state.conn
+    conn=ctx["conn"]
     from db import insert_mistake, insert_variant
     mid=insert_mistake(conn,subject="math",original_problem=problem,wrong_answer=wrong,correct_answer=diag.get("correct_answer",""),knowledge_point=diag["knowledge_point"],error_type=diag["error_type"],error_analysis=diag["error_analysis"],pool_status="active",grade_level=grade,curriculum_ver=curriculum)
     variants=generate_variants(diag["knowledge_point"],diag["error_type"],diag["error_analysis"],grade,curriculum,"easy",3)
@@ -176,10 +175,10 @@ async def mistake_post(request: Request):
 
 @app.post("/answer/{variant_id}")
 async def answer(request: Request, variant_id:int):
-    a=_auth(request);
-    if a: return a
+    redir, ctx = _auth(request)
+    if redir: return redir
     form=await request.form(); ans=form.get("answer","").strip()
-    conn=request.state.conn
+    conn=ctx["conn"]
     from db import get_variant, get_mistake, insert_attempt, upsert_mastery, update_pool_status, update_mastery_review
     v=get_variant(conn,variant_id)
     if not v: return JSONResponse({"error":"不存在"},404)
@@ -198,9 +197,9 @@ async def answer(request: Request, variant_id:int):
 
 @app.get("/map", response_class=HTMLResponse)
 async def map_page(request: Request):
-    a=_auth(request);
-    if a: return a
-    conn=getattr(request.state,'conn',None); mh=""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn=ctx.get("conn"); mh=""
     if conn:
         from db import get_all_masteries
         ms=get_all_masteries(conn,"math")
@@ -212,9 +211,9 @@ async def map_page(request: Request):
 
 @app.get("/report", response_class=HTMLResponse)
 async def report_page(request: Request):
-    a=_auth(request);
-    if a: return a
-    n=request.state.student; conn=getattr(request.state,'conn',None); mh=""; overall=0
+    redir, ctx = _auth(request)
+    if redir: return redir
+    n=ctx["student"]; conn=ctx.get("conn"); mh=""; overall=0
     if conn:
         from db import get_all_masteries
         ms=get_all_masteries(conn,"math"); overall=sum(m["mastery_score"] for m in ms)/len(ms) if ms else 0
@@ -227,9 +226,9 @@ async def report_page(request: Request):
 
 @app.get("/mistakes", response_class=HTMLResponse)
 async def mistakes_list(request: Request):
-    a=_auth(request);
-    if a: return a
-    conn=getattr(request.state,'conn',None); mh=""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn=ctx.get("conn"); mh=""
     if conn:
         from db import list_mistakes
         ms=list_mistakes(conn,limit=100); em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
