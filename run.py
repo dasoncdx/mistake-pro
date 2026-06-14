@@ -89,9 +89,58 @@ async def login_post(request: Request):
     except: pass
     sid=_sid(); _sessions[sid]=n; resp=RedirectResponse("/home",302); resp.set_cookie("sid",sid); return resp
 
+_REG_CSS = """<style>.cascade-row{display:flex;gap:8px;margin-bottom:8px}.cascade-row select{flex:1;height:46px;background:var(--c);border:none;border-radius:11px;padding:0 12px;font-size:14px;color:var(--t);outline:none;font-family:inherit;appearance:auto}</style>"""
+_REGION = json.dumps({
+    "广东": {"广州":["天河区","越秀区","海珠区","白云区","番禺区","黄埔区","南沙区","花都区","增城区","从化区"],"深圳":["南山区","福田区","罗湖区","宝安区","龙岗区","龙华区","光明区","坪山区","盐田区","大鹏新区"],"东莞":["莞城区","南城区","东城区","万江区"],"佛山":["禅城区","南海区","顺德区","三水区","高明区"],"珠海":["香洲区","斗门区","金湾区"]},
+    "北京": {"北京":["东城区","西城区","朝阳区","海淀区","丰台区","石景山区","通州区","大兴区","昌平区","顺义区"]},
+    "上海": {"上海":["黄浦区","徐汇区","长宁区","静安区","普陀区","虹口区","杨浦区","浦东新区","闵行区","宝山区"]},
+    "浙江": {"杭州":["上城区","拱墅区","西湖区","滨江区","萧山区","余杭区","临平区"],"宁波":["海曙区","江北区","鄞州区","北仑区","镇海区"]},
+    "江苏": {"南京":["玄武区","秦淮区","建邺区","鼓楼区","栖霞区","雨花台区","江宁区","浦口区"],"苏州":["姑苏区","虎丘区","吴中区","相城区","吴江区","工业园区"]},
+    "四川": {"成都":["锦江区","青羊区","金牛区","武侯区","成华区","龙泉驿区","青白江区","新都区","双流区","郫都区","高新区","天府新区"]},
+    "湖北": {"武汉":["江岸区","江汉区","硚口区","汉阳区","武昌区","洪山区","青山区","东西湖区","江夏区","黄陂区"]},
+    "湖南": {"长沙":["芙蓉区","天心区","岳麓区","开福区","雨花区","望城区","长沙县"]},
+    "山东": {"济南":["历下区","市中区","槐荫区","天桥区","历城区","长清区","章丘区"],"青岛":["市南区","市北区","黄岛区","崂山区","李沧区","城阳区","即墨区"]},
+    "福建": {"福州":["鼓楼区","台江区","仓山区","马尾区","晋安区","长乐区"],"厦门":["思明区","湖里区","集美区","海沧区","同安区","翔安区"]},
+    "河南": {"郑州":["中原区","二七区","管城区","金水区","上街区","惠济区","郑东新区"]},
+    "河北": {"石家庄":["长安区","桥西区","新华区","井陉矿区","裕华区","藁城区","鹿泉区","栾城区"]},
+    "天津": {"天津":["和平区","河东区","河西区","南开区","河北区","红桥区","东丽区","西青区","北辰区","武清区","宝坻区","滨海新区"]},
+    "重庆": {"重庆":["渝中区","江北区","南岸区","沙坪坝区","九龙坡区","大渡口区","北碚区","渝北区","巴南区"]},
+})
+
+_REG_PAGE = """<div class="pg"><div class="nb"><a href="/login">← 返回</a><span class="tt">创建账号</span></div><form method="post" action="/register">
+<div class="label">昵称</div><input class="inp" name="name" placeholder="输入昵称" required>
+<div class="label">密码</div><input class="inp" name="password" type="password" placeholder="至少3位" required minlength="3">
+<input class="inp" name="password2" type="password" placeholder="确认密码" required>
+<div class="label">所在地区（省-市-区）</div>
+<div class="cascade-row">
+<select class="inp" id="sel-province" onchange="loadCities()"><option value="">请选择省份</option></select>
+<select class="inp" id="sel-city" onchange="loadDistricts()"><option value="">请选择城市</option></select>
+<select class="inp" id="sel-district" name="district"><option value="">请选择区县</option></select>
+<input type="hidden" name="province" id="hf-province"><input type="hidden" name="city" id="hf-city">
+</div>
+<div class="label">在读年级</div><select class="inp" name="grade" style="appearance:auto">
+<option value="grade_1">小一</option><option value="grade_2">小二</option><option value="grade_3">小三</option><option value="grade_4" selected>小四</option><option value="grade_5">小五</option><option value="grade_6">小六</option><option value="grade_7">初一</option><option value="grade_8">初二</option><option value="grade_9">初三</option><option value="grade_10">高一</option><option value="grade_11">高二</option><option value="grade_12">高三</option></select>
+<div class="label">科目与教材版本</div>
+<div id="subject-forms"></div>
+<div class="label">选择科目</div>
+<div class="chip-row"><label class="chip" onclick="toggleSubj('math',this,'人教版')"><input type="checkbox" name="subjects" value="math" checked> 数学 · 人教版</label><label class="chip" onclick="toggleSubj('english',this,'人教版')"><input type="checkbox" name="subjects" value="english"> 英语 · 人教版</label><label class="chip" onclick="toggleSubj('chinese',this,'人教版')"><input type="checkbox" name="subjects" value="chinese"> 语文 · 统编版</label></div>
+<button class="btn btn-p" onclick="prepareSubmit()">确认，开始使用</button></form></div>
+""" + _REG_CSS + """
+<script>
+var regionData = """ + _REGION + """;
+var selPro=document.getElementById('sel-province'),selCity=document.getElementById('sel-city'),selDist=document.getElementById('sel-district');
+var hfPro=document.getElementById('hf-province'),hfCity=document.getElementById('hf-city');
+var provinces=Object.keys(regionData).sort();
+provinces.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;selPro.appendChild(o)});
+function loadCities(){selCity.innerHTML='<option value="">请选择城市</option>';selDist.innerHTML='<option value="">请选择区县</option>';var p=selPro.value;hfPro.value=p;if(!p||!regionData[p])return;Object.keys(regionData[p]).sort().forEach(function(c){var o=document.createElement('option');o.value=c;o.textContent=c;selCity.appendChild(o)})}
+function loadDistricts(){selDist.innerHTML='<option value="">请选择区县</option>';var p=selPro.value,c=selCity.value;hfCity.value=c;if(!p||!c||!regionData[p]||!regionData[p][c])return;regionData[p][c].forEach(function(d){var o=document.createElement('option');o.value=d;o.textContent=d;selDist.appendChild(o)})}
+function toggleSubj(s,el,defVer){el.classList.toggle('sel');var cb=el.querySelector('input');cb.checked=el.classList.contains('sel')}
+function prepareSubmit(){hfPro.value=selPro.value;hfCity.value=selCity.value}
+</script>"""
+
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return HTMLResponse(_pg("""<div class="pg"><div class="nb"><a href="/login">← 返回</a><span class="tt">创建账号</span></div><form method="post" action="/register"><div class="label">昵称</div><input class="inp" name="name" placeholder="输入昵称" required><div class="label">密码</div><input class="inp" name="password" type="password" placeholder="至少3位" required minlength="3"><input class="inp" name="password2" type="password" placeholder="确认密码" required><div class="label">所在地区</div><input class="inp" name="province" placeholder="省" value="广东"><input class="inp" name="city" placeholder="市" value="广州"><input class="inp" name="district" placeholder="区" value="天河"><div class="label">在读年级</div><select class="inp" name="grade" style="appearance:auto"><option value="grade_1">小一</option><option value="grade_2">小二</option><option value="grade_3">小三</option><option value="grade_4" selected>小四</option><option value="grade_5">小五</option><option value="grade_6">小六</option><option value="grade_7">初一</option><option value="grade_8">初二</option><option value="grade_9">初三</option><option value="grade_10">高一</option><option value="grade_11">高二</option><option value="grade_12">高三</option></select><div class="label">教材版本</div><select class="inp" name="curriculum" style="appearance:auto"><option>人教版</option><option>北师大版</option><option>苏教版</option><option>沪教版</option></select><div class="label">科目</div><div class="chip-row"><label class="chip sel"><input type="checkbox" name="subjects" value="math" checked> 数学</label><label class="chip"><input type="checkbox" name="subjects" value="english"> 英语</label><label class="chip"><input type="checkbox" name="subjects" value="chinese"> 语文</label></div><button class="btn btn-p">确认，开始使用</button></form></div>""","注册"))
+    return HTMLResponse(_pg(_REG_PAGE, "注册"))
 
 @app.post("/register")
 async def register_post(request: Request):
@@ -142,7 +191,7 @@ async function ocrUpload(){
   if(!f) return alert('请先选择图片');
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
-  var d=new FormData();d.append('photo',f);d.append('subject','math');
+  var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/ocr',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
@@ -158,7 +207,7 @@ function ocrConfirm(){
   var p=document.getElementById('ocrProblem').value.trim();
   var w=document.getElementById('ocrWrong').value.trim();
   if(!p) return alert('题目不能为空');
-  var d=new FormData();d.append('problem',p);d.append('wrong_answer',w);d.append('subject','math');
+  var d=new FormData();d.append('problem',p);d.append('wrong_answer',w);d.append('subject',document.getElementById('curSubject').value);
   document.getElementById('ocrResult').style.display='none';
   document.getElementById('ld').style.display='block';
   fetch('/mistake/new',{method:'POST',body:d}).then(r=>r.json()).then(j=>{
@@ -222,6 +271,13 @@ async def mistake_page(request: Request):
     if redir: return redir
     html = r"""<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">录入错题</span></div>
     <div id="f">
+    <div class="label">选择学科</div>
+    <div class="chip-row" style="margin-bottom:16px;">
+      <label class="chip sel" onclick="setSubj('math',this)"><span class="dot"></span> 数学</label>
+      <label class="chip" onclick="setSubj('english',this)"><span class="dot"></span> 英语</label>
+      <label class="chip" onclick="setSubj('chinese',this)"><span class="dot"></span> 语文</label>
+    </div>
+    <input type="hidden" id="curSubject" value="math">
     <div class="label">方式一：拍照识别（推荐）</div>
     <div class="crd" style="text-align:center;padding:24px;border:2px dashed var(--br);background:var(--card);">
       <input type="file" id="photo" accept="image/*" capture="environment" style="margin-bottom:12px;font-size:14px;width:100%;">
@@ -239,6 +295,7 @@ async def mistake_page(request: Request):
       <button class="btn btn-p" onclick="ocrConfirm()">确认提交，生成变式题</button>
     </div>
     <div id="r" style="display:none;"></div><div id="p" style="display:none;"></div></div>
+    <script>function setSubj(s,el){document.querySelectorAll('.chip-row .chip').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');document.getElementById('curSubject').value=s};</script>
     <script>""" + _JS_OCR + "</script>"
     return HTMLResponse(_pg(html, "录入错题"))
 
