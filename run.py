@@ -16,6 +16,14 @@ db.DB_DIR = os.path.join(_DATA_ROOT, "user_data")
 
 app = FastAPI(title="错题Pro")
 
+# ─── 全局错误处理 ──────────────────────────────
+import traceback as _tb
+from starlette.requests import Request as _SR
+from starlette.responses import PlainTextResponse
+@app.exception_handler(Exception)
+async def _global_handler(request: _SR, exc: Exception):
+    return PlainTextResponse(_tb.format_exc(), status_code=500)
+
 # ─── 内存存储（Zeabur 文件系统不可靠）─────────────────
 _users = {}
 _sessions = {}
