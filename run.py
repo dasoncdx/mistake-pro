@@ -46,7 +46,11 @@ def _sid(): return ''.join(random.choices(_string.ascii_letters+_string.digits, 
 def health(): return {"ok":True,"users":len(_users)}
 
 @app.get("/")
-def root(): return {"ok":True,"app":"错题Pro"}
+def root(request: Request):
+    ua = request.headers.get("user-agent","")
+    if "Mozilla" in ua:
+        return RedirectResponse("/login", 302)
+    return {"ok": True, "app": "错题Pro"}
 
 # ─── 认证 ──────────────────────────────────────
 
