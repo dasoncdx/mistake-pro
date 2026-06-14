@@ -3,10 +3,16 @@ import os, sys, json, hashlib
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
+# Zeabur容器: /tmp 有写权限
+_DATA_ROOT = "/tmp/mistake_pro_data" if os.path.exists("/tmp") and not os.access(ROOT, os.W_OK) else ROOT
 
 from dotenv import load_dotenv; load_dotenv()
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+# 强制db.py用/tmp写数据
+import db
+db.DB_DIR = os.path.join(_DATA_ROOT, "user_data")
 
 app = FastAPI(title="错题Pro")
 
@@ -24,9 +30,9 @@ def _ensure():
             "province":"广东省","city":"广州市","district":"天河区",
             "grade_level":"grade_4","curriculum_version":"人教版",
             "subjects":["math"],"version":"basic"}
-    # 尝试写文件持久化
+    # 尝试写文件持久化（使用/tmp路径）
     try:
-        d=os.path.join(ROOT,"user_data"); os.makedirs(d,exist_ok=True)
+        d=os.path.join(_DATA_ROOT,"user_data"); os.makedirs(d,exist_ok=True)
         for name in ["demo","test"]:
             ud=os.path.join(d,name); os.makedirs(ud,exist_ok=True)
             pf=os.path.join(ud,"profile.json")
@@ -87,7 +93,7 @@ async def register_post(request: Request):
     s=os.urandom(16); h=hashlib.pbkdf2_hmac("sha256",p1.encode(),s,200000)
     _users[n]={"student_name":n,"password_hash":s.hex()+":"+h.hex(),"province":form.get("province",""),"city":form.get("city",""),"district":form.get("district",""),"grade_level":form.get("grade","grade_4"),"curriculum_version":form.get("curriculum","人教版"),"subjects":form.getlist("subjects") or ["math"],"version":"basic"}
     try:
-        d=os.path.join(ROOT,"user_data",n); os.makedirs(d,exist_ok=True)
+        d=os.path.join(_DATA_ROOT,"user_data",n); os.makedirs(d,exist_ok=True)
         json.dump(_users[n],open(os.path.join(d,"profile.json"),"w"),ensure_ascii=False,indent=2)
         from db import init_db; init_db(n)
     except: pass
@@ -110,11 +116,12 @@ def _auth(request):
 
 @app.get("/home", response_class=HTMLResponse)
 async def home(request: Request):
-    a=_auth(request);
-    if a: return a
-    n=request.state.student
-    body = f"""<div class="pg"><div style="display:flex;justify-content:flex-end;padding:12px 0;"><a href="/logout" style="font-size:12px;color:var(--tw);">退出</a></div>
-    <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
+    try:
+        a=_auth(request);
+        if a: return a
+        n=request.state.student
+        body = f"""<div class="pg"><div style="display:flex;justify-content:flex-end;padding:12px 0;"><a href="/logout" style="font-size:12px;color:var(--tw);">退出</a></div>
+        <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
     <div style="font-size:13px;color:var(--ts);margin-bottom:20px;">开始学习吧</div>
     <div class="gr"><a href="/mistake/new" class="gi" style="background:rgba(91,127,255,.04);"><div class="ic">📝</div><div class="lb">录入错题</div></a><a href="/map" class="gi" style="background:rgba(255,91,107,.04);"><div class="ic">🗺️</div><div class="lb">知识版图</div></a><a href="/report" class="gi" style="background:rgba(91,127,255,.02);"><div class="ic">📊</div><div class="lb">学习报告</div></a><a href="/mistakes" class="gi" style="background:rgba(255,91,107,.02);"><div class="ic">📋</div><div class="lb">错题回顾</div></a></div></div>"""
     return HTMLResponse(_pg(body, "首页", ("1","","")))
