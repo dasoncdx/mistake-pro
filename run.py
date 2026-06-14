@@ -135,24 +135,168 @@ async def home(request: Request):
 
 # ─── 录入 ──────────────────────────────────────
 
-_JS = """let vs=[],idx=0,cc=0;async function go(){let a=document.getElementById('prob').value.trim(),b=document.getElementById('wans').value.trim();if(!a)return alert('请输入题目');document.getElementById('f').style.display='none';document.getElementById('ld').style.display='block';let d=new FormData();d.append('problem',a);d.append('wrong_answer',b);d.append('subject','math');try{let r=await fetch('/mistake/new',{method:'POST',body:d}),j=await r.json();if(j.error){alert(j.error);location.reload()}sr(j)}catch(e){alert(e);location.reload()}}
-function sr(d){document.getElementById('ld').style.display='none';let di=d.diagnosis;document.getElementById('r').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:12px;">'+e(di.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;"><span class="tag tag-w">'+e(di.error_type)+'</span><span style="font-size:13px;color:var(--ts);line-height:1.6;">'+e(di.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;color:var(--t);font-weight:600;">'+e(di.correct_answer)+'</span></div></div><p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+d.variants.length+'</b> 道变式题</p>';vs=d.variants;idx=0;cc=0;nq()}
-function nq(){if(idx>=vs.length){fp();return}let v=vs[idx],dl={easy:'🟢 热身',same:'🟡 标准',slightly_harder:'🔴 挑战'}[v.difficulty]||'';document.getElementById('p').innerHTML='<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);margin-bottom:8px;">'+dl+' · 第'+(idx+1)+'/'+vs.length+'题</div><div style="font-size:16px;color:var(--t);line-height:1.8;margin-bottom:16px;">'+e(v.problem)+'</div><input class="inp" id="pa" placeholder="输入你的答案"><div id="fb"></div><button class="btn btn-p" onclick="sa('+v.id+')" id="sb">提交答案</button></div>';document.getElementById('p').style.display='block';setTimeout(()=>{let el=document.getElementById('pa');if(el)el.focus()},100)}
-async function sa(vid){let a=document.getElementById('pa').value.trim();if(!a)return;document.getElementById('sb').disabled=true;let d=new FormData();d.append('answer',a);try{let r=await fetch('/answer/'+vid,{method:'POST',body:d}),j=await r.json();let fb=document.getElementById('fb');if(j.is_correct){cc++;fb.innerHTML='<div class="fb-c"><div style="font-size:32px;">✅</div><div style="font-weight:700;color:var(--g);">回答正确！</div><div style="font-size:13px;color:var(--ts);">'+e(j.feedback)+'</div></div>'}else{fb.innerHTML='<div class="fb-w"><div style="font-size:32px;">💪</div><div style="font-weight:700;color:var(--r);">还差一点点</div><div style="font-size:13px;color:var(--ts);">'+e(j.feedback)+'</div>'+(j.hint?'<div style="background:var(--bb);padding:10px;border-radius:10px;margin-top:8px;text-align:left;font-size:12px;"><b>💡 提示：</b>'+e(j.hint)+'</div>':'')+'<div style="font-size:12px;color:var(--tw);margin-top:8px;">正确答案：'+e(j.correct_answer)+'</div></div>'}document.getElementById('sb').textContent='继续下一题 →';document.getElementById('sb').onclick=()=>{idx++;nq()};document.getElementById('sb').disabled=false}catch(e){alert(e)}}
-function fp(){document.getElementById('p').innerHTML='<div class="crd" style="text-align:center;"><div style="font-size:40px;">🎉</div><div style="font-size:20px;font-weight:700;color:var(--t);">练习完成！</div><div style="font-size:14px;color:var(--ts);">正确 '+cc+'/'+vs.length+'</div><a href="/home" class="btn btn-p" style="margin-top:16px;">返回首页</a></div>'}
-function e(s){let d=document.createElement('div');d.textContent=s||'';return d.innerHTML}"""
+_JS_OCR = r"""
+var vs=[],idx=0,cc=0;
+async function ocrUpload(){
+  var f=document.getElementById('photo').files[0];
+  if(!f) return alert('请先选择图片');
+  document.getElementById('f').style.display='none';
+  document.getElementById('ld').style.display='block';
+  var d=new FormData();d.append('photo',f);d.append('subject','math');
+  try{
+    var r=await fetch('/mistake/ocr',{method:'POST',body:d}),j=await r.json();
+    if(j.error){alert(j.error);location.reload();return}
+    document.getElementById('ld').style.display='none';
+    document.getElementById('ocrResult').style.display='block';
+    document.getElementById('ocrProblem').value=j.ocr_problem||'';
+    document.getElementById('ocrWrong').value=j.ocr_student_answer||'';
+    document.getElementById('ocrDiag').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);margin-top:12px;"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);">'+esc(j.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin:8px 0;"><span class="tag tag-w">'+esc(j.error_type)+'</span><span style="font-size:13px;color:var(--ts);">'+esc(j.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;font-weight:600;">'+esc(j.correct_answer)+'</span></div></div>';
+    vs=j.variants;idx=0;cc=0;
+  }catch(e){alert(e);location.reload()}
+}
+function ocrConfirm(){
+  var p=document.getElementById('ocrProblem').value.trim();
+  var w=document.getElementById('ocrWrong').value.trim();
+  if(!p) return alert('题目不能为空');
+  var d=new FormData();d.append('problem',p);d.append('wrong_answer',w);d.append('subject','math');
+  document.getElementById('ocrResult').style.display='none';
+  document.getElementById('ld').style.display='block';
+  fetch('/mistake/new',{method:'POST',body:d}).then(r=>r.json()).then(j=>{
+    if(j.error){alert(j.error);location.reload();return}
+    document.getElementById('ld').style.display='none';
+    document.getElementById('r').innerHTML='<p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+j.variants.length+'</b> 道变式题</p>';
+    vs=j.variants;idx=0;cc=0;nq();
+  }).catch(e=>{alert(e);location.reload()});
+}
+async function goM(){
+  var a=document.getElementById('prob').value.trim();
+  var b=document.getElementById('wans').value.trim();
+  if(!a) return alert('请输入题目');
+  document.getElementById('f').style.display='none';
+  document.getElementById('ld').style.display='block';
+  var d=new FormData();d.append('problem',a);d.append('wrong_answer',b);d.append('subject','math');
+  try{
+    var r=await fetch('/mistake/new',{method:'POST',body:d}),j=await r.json();
+    if(j.error){alert(j.error);location.reload();return}
+    document.getElementById('ld').style.display='none';
+    document.getElementById('r').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:12px;">'+esc(j.diagnosis.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;"><span class="tag tag-w">'+esc(j.diagnosis.error_type)+'</span><span style="font-size:13px;color:var(--ts);line-height:1.6;">'+esc(j.diagnosis.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;color:var(--t);font-weight:600;">'+esc(j.diagnosis.correct_answer)+'</span></div></div><p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+j.variants.length+'</b> 道变式题</p>';
+    vs=j.variants;idx=0;cc=0;nq();
+  }catch(e){alert(e);location.reload()}
+}
+function nq(){
+  if(idx>=vs.length){fp();return}
+  var v=vs[idx];
+  var dl={easy:'🟢 热���',same:'🟡 标准',slightly_harder:'🔴 挑战'}[v.difficulty]||'';
+  document.getElementById('p').innerHTML='<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);margin-bottom:8px;">'+dl+' · 第'+(idx+1)+'/'+vs.length+'题</div><div style="font-size:16px;color:var(--t);line-height:1.8;margin-bottom:16px;">'+esc(v.problem)+'</div><input class="inp" id="pa" placeholder="输入你的答案"><div id="fb"></div><button class="btn btn-p" onclick="goAns('+v.id+')" id="sb">提交答案</button></div>';
+  document.getElementById('p').style.display='block';
+  setTimeout(function(){var el=document.getElementById('pa');if(el)el.focus()},100);
+}
+async function goAns(vid){
+  var a=document.getElementById('pa').value.trim();
+  if(!a) return;
+  document.getElementById('sb').disabled=true;
+  var d=new FormData();d.append('answer',a);
+  try{
+    var r=await fetch('/answer/'+vid,{method:'POST',body:d}),j=await r.json();
+    var fb=document.getElementById('fb');
+    if(j.is_correct){
+      cc++;
+      fb.innerHTML='<div class="fb-c"><div style="font-size:32px;">✅</div><div style="font-weight:700;color:var(--g);">回答正确！</div><div style="font-size:13px;color:var(--ts);">'+esc(j.feedback)+'</div></div>';
+    }else{
+      fb.innerHTML='<div class="fb-w"><div style="font-size:32px;">💪</div><div style="font-weight:700;color:var(--r);">还差一点点</div><div style="font-size:13px;color:var(--ts);">'+esc(j.feedback)+'</div>'+(j.hint?'<div style="background:var(--bb);padding:10px;border-radius:10px;margin-top:8px;text-align:left;font-size:12px;"><b>💡 提示：</b>'+esc(j.hint)+'</div>':'')+'<div style="font-size:12px;color:var(--tw);margin-top:8px;">正确答案：'+esc(j.correct_answer)+'</div></div>';
+    }
+    document.getElementById('sb').textContent='继续下一题 →';
+    document.getElementById('sb').onclick=function(){idx++;nq()};
+    document.getElementById('sb').disabled=false;
+  }catch(e){alert(e)}
+}
+function fp(){
+  document.getElementById('p').innerHTML='<div class="crd" style="text-align:center;"><div style="font-size:40px;">🎉</div><div style="font-size:20px;font-weight:700;color:var(--t);">练习完成！</div><div style="font-size:14px;color:var(--ts);">正确 '+cc+'/'+vs.length+'</div><a href="/home" class="btn btn-p" style="margin-top:16px;">返回首页</a></div>';
+}
+function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+"""
 
 @app.get("/mistake/new", response_class=HTMLResponse)
 async def mistake_page(request: Request):
     redir, ctx = _auth(request)
     if redir: return redir
-    body = f"""<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">录入错题</span></div>
-    <div id="f"><div class="label">题目内容</div><textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
+    html = r"""<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">录入错题</span></div>
+    <div id="f">
+    <div class="label">方式一：拍照识别（推荐）</div>
+    <div class="crd" style="text-align:center;padding:24px;border:2px dashed var(--br);background:var(--card);">
+      <input type="file" id="photo" accept="image/*" capture="environment" style="margin-bottom:12px;font-size:14px;width:100%;">
+      <button class="btn btn-p" onclick="ocrUpload()">📷 拍照识别 + AI诊断</button>
+    </div>
+    <div class="label" style="margin-top:20px;">方式二：手动输入</div>
+    <textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
     <div class="label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
-    <button class="btn btn-p" onclick="go()">提交，开始AI诊断</button></div>
+    <button class="btn btn-p" onclick="goM()">提交，开始AI诊断</button></div>
     <div id="ld" style="display:none;text-align:center;padding:40px;"><div class="spinner"></div><div style="color:var(--ts);">AI正在分析中...</div></div>
-    <div id="r" style="display:none;"></div><div id="p" style="display:none;"></div></div><script>{_JS}</script>"""
-    return HTMLResponse(_pg(body, "录入错题"))
+    <div id="ocrResult" style="display:none;margin-top:16px;">
+      <div class="label">识别结果（可修改）</div><textarea class="txa" id="ocrProblem"></textarea>
+      <div class="label">错误答案（可修改）</div><input class="inp" id="ocrWrong">
+      <div id="ocrDiag"></div>
+      <button class="btn btn-p" onclick="ocrConfirm()">确认提交，生成变式题</button>
+    </div>
+    <div id="r" style="display:none;"></div><div id="p" style="display:none;"></div></div>
+    <script>""" + _JS_OCR + "</script>"
+    return HTMLResponse(_pg(html, "录入错题"))
+
+@app.post("/mistake/ocr")
+async def mistake_ocr(request: Request):
+    """拍照OCR + AI诊断 + 变式生成 一键完成"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    photo = form.get("photo")
+    if not photo or not hasattr(photo, 'filename') or not photo.filename:
+        return JSONResponse({"error":"请上传图片"}, 400)
+    import base64
+    img_bytes = await photo.read()
+    img_b64 = base64.b64encode(img_bytes).decode()
+
+    pf = ctx["profile"]
+    grade = pf.get("grade_level", "grade_4")
+    curriculum = pf.get("curriculum_version", "人教版")
+
+    from ai import _get_client
+    client = _get_client()
+    from prompts import ocr_diagnosis_prompt
+    prompt = ocr_diagnosis_prompt(grade, curriculum)
+
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        max_tokens=2048, temperature=0.3,
+        messages=[{"role":"user","content": [
+            {"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{img_b64}"}},
+            {"type":"text","text":prompt},
+        ]}]
+    )
+    raw = response.choices[0].message.content.strip()
+    import re
+    if raw.startswith("```"): raw = re.sub(r"^```(?:json)?\s*","",raw); raw = re.sub(r"\s*```$","",raw)
+    ocr_data = json.loads(raw)
+
+    problem = ocr_data.get("ocr_problem","")
+    wrong = ocr_data.get("ocr_student_answer","")
+    diag = {"knowledge_point": ocr_data["knowledge_point"],
+            "error_type": ocr_data["error_type"],
+            "error_analysis": ocr_data["error_analysis"],
+            "correct_answer": ocr_data["correct_answer"]}
+
+    from ai import generate_variants
+    variants = generate_variants(diag["knowledge_point"], diag["error_type"],
+        diag["error_analysis"], grade, curriculum, "easy", 3)
+    diffs = ["easy","easy","same"]; saved = []
+    for i, v in enumerate(variants):
+        saved.append({"id": -1, "problem": v["problem"],
+                      "difficulty": diffs[i] if i < len(diffs) else "same"})
+
+    return JSONResponse({"ocr_problem": problem, "ocr_student_answer": wrong,
+        "knowledge_point": diag["knowledge_point"], "error_type": diag["error_type"],
+        "error_analysis": diag["error_analysis"], "correct_answer": diag["correct_answer"],
+        "variants": saved})
+
 
 @app.post("/mistake/new")
 async def mistake_post(request: Request):
