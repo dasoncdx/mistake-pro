@@ -1,6 +1,6 @@
 # 错题Pro — 技术方案文档（TECH DESIGN）
 
-> 版本：v1.0 | 对应PRD：v1.0
+> 版本：v1.1 | 对应PRD：v1.1 | 已部署：https://mistake-pro.zeabur.app
 
 ---
 
@@ -1152,31 +1152,40 @@ def compute_trend(knowledge_point_data: dict) -> dict:
 
 ## 八、部署方案
 
-### 8.1 Zeabur部署配置
+### 8.1 Zeabur 部署配置（v1.1 实际生效版）
 
 ```
-服务配置：
+项目结构（线上实际运行）：
+  ├── run.py               # 唯一入口，所有业务逻辑
+  ├── db.py / ai.py / prompts.py / scheduler.py  # 引擎模块
+  ├── requirements.txt      # openai, fastapi, uvicorn, python-dotenv, python-multipart
+  ├── Procfile             # web: python run.py
+  └── .gitignore           # 排除 .env, .session, user_data/
+
+Zeabur 服务配置：
+  - Provider: python（自动检测）
   - Server：Tencent Cloud Tencent Singapore 2C 4GB
-  - 运行时：Python 3.12+
-  - 入口：backend/app/main.py
-  - 启动命令：uvicorn app.main:app --host 0.0.0.0 --port 8000
+  - 入口：run.py（通过 Procfile: python run.py）
+  - 端口：8080（环境变量 PORT=8080）
 
-内置服务：
-  - PostgreSQL 15（Zeabur自动创建，连接字符串通过环境变量注入）
-  - Redis 7（Zeabur自动创建，连接字符串通过环境变量注入）
-  - Celery Worker（单独一个服务进程，命令：celery -A app.tasks worker --loglevel=info）
+环境变量（Zeabur 控制台配置）：
+  - DEEPSEEK_API_KEY=sk-xxx         # DeepSeek API Key
+  - DEEPSEEK_BASE_URL=https://api.deepseek.com
+  - PORT=8080
 
-环境变量（Zeabur控制台配置）：
-  - ANTHROPIC_API_KEY=sk-ant-xxx
-  - DATABASE_URL=postgresql://...（Zeabur自动注入）
-  - REDIS_URL=redis://...（Zeabur自动注入）
-  - WX_APPID=xxx（小程序AppID，Phase 4配置）
-  - WX_SECRET=xxx（小程序Secret，Phase 4配置）
+数据存储策略（容器兼容）：
+  - 用户认证：内存字典 _users（持久化可选）
+  - 错题/变式/答题：SQLite（/tmp/mistake_pro_data/user_data/{name}/mistakes.db）
+  - Session：内存字典 _sessions + Cookie（sid）
+  - 所有文件写入 try/except 静默跳过，确保在只读文件系统下不崩溃
 
-静态文件：
-  - Zeabur静态文件服务 → /static/
-  - 用户上传的错题照片和IP图片存放在此
-  - 对外URL：https://your-app.zeabur.app/static/{user_id}/{type}/{file}
+构建/部署流程：
+  1. git push → GitHub → Zeabur 自动检测 → pip install → python run.py
+  2. 健康检查：GET / 返回 {"ok":true}
+  3. 首次请求触发 _ensure() 初始化测试账号
+  4. 已知踩坑：必须用 Procfile 指定 python run.py，不能依赖 Zeabur 自动检测 uvicorn
+
+域名：https://mistake-pro.zeabur.app
 ```
 
 ### 8.2 未来迁移路径

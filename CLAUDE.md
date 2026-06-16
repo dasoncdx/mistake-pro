@@ -63,3 +63,22 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## 5. Docs Must Stay In Sync With Code
+
+**Every change to the application must be reflected in the three spec documents.**
+
+Whenever you modify `app.py`/`run.py` or any runtime behavior:
+1. **PRD.md** — update if the change adds, removes, or alters a feature described in the product requirements. Keep the functional checklist accurate.
+2. **TECH_DESIGN.md** — update if the change affects architecture, data model, API design, tech stack, deployment config, or compliance/legal copy. The tech doc must always describe the system as it actually runs.
+3. **DESIGN.md** — update if the change alters UI layout, navigation structure, color usage, typography, component spec, or page flow. The design doc describes what the user sees.
+
+**Rule of thumb:** After any git commit that changes app behavior, ask: *"Which of the three docs would this commit make inaccurate?"* Then update those docs in the same commit — or immediately after.
+
+**This project has four sources of truth, and they must agree:**
+```
+PRD.md = what we're building
+TECH_DESIGN.md = how we built it
+DESIGN.md = what it looks like
+run.py (code) = what it actually does
+```
