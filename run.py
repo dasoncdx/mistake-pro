@@ -72,10 +72,10 @@ _LOGIN_PAGE = r"""<div class="login-page">
   <!-- Logo 区 -->
   <div class="login-logo">
     <div class="login-icon">
-      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="64" height="64" rx="18" fill="url(#lg)"/>
-        <defs><linearGradient id="lg" x1="0" y1="0" x2="64" y2="64"><stop offset="0" stop-color="#5B7FFF"/><stop offset="1" stop-color="#7B9BFF"/></linearGradient></defs>
-        <path d="M20 36 L28 46 L44 22" stroke="#FFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="72" height="72" rx="20" fill="url(#lgg)"/>
+        <defs><linearGradient id="lgg" x1="0" y1="0" x2="72" y2="72"><stop offset="0%" stop-color="#5B7FFF"/><stop offset="100%" stop-color="#8BABFF"/></linearGradient></defs>
+        <path d="M24 38 L32 50 L50 26" stroke="#FFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
       </svg>
     </div>
     <div class="login-brand">错题<span class="login-brand-accent">Pro</span></div>
@@ -94,31 +94,24 @@ _LOGIN_PAGE = r"""<div class="login-page">
   <div class="login-footer">
     还没有账号？<a href="/register" class="login-link">立即注册</a>
   </div>
-
-  <!-- 已有测试账号 -->
-  <div class="login-accounts" id="existingAccounts"></div>
 </div>
 
 <style>
 .login-page{max-width:420px;margin:0 auto;padding:0 28px;display:flex;flex-direction:column;min-height:100vh;justify-content:center}
-.login-logo{text-align:center;margin-bottom:40px}
-.login-icon{margin:0 auto 16px;width:64px;height:64px}
-.login-brand{font-size:30px;font-weight:800;color:var(--t);letter-spacing:-0.5px}
+.login-logo{text-align:center;margin-bottom:36px}
+.login-icon{margin:0 auto 20px;width:72px;height:72px}
+.login-brand{font-size:32px;font-weight:800;color:var(--t);letter-spacing:-1px}
 .login-brand-accent{color:var(--b)}
 .login-subtitle{font-size:13px;color:var(--ts);margin-top:10px;line-height:1.5}
 .login-form{display:flex;flex-direction:column;gap:14px}
 .login-input{width:100%;height:52px;background:var(--bg);border:1.5px solid var(--br);border-radius:14px;padding:0 18px;font-size:16px;color:var(--t);outline:none;font-family:inherit;transition:border-color .2s}
 .login-input:focus{border-color:var(--b);background:var(--w)}
 .login-input::placeholder{color:var(--tw)}
-.login-btn{width:100%;height:52px;background:var(--b);color:#FFF;border:none;border-radius:14px;font-size:17px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:6px;transition:opacity .2s}
+.login-btn{width:100%;height:52px;background:var(--b);color:#FFF;border:none;border-radius:14px;font-size:17px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px;transition:opacity .2s}
 .login-btn:active{opacity:.85}
 .login-error{background:var(--rb);color:var(--r);padding:12px 16px;border-radius:12px;font-size:14px;text-align:center}
-.login-footer{text-align:center;margin-top:28px;font-size:14px;color:var(--ts)}
+.login-footer{text-align:center;margin-top:32px;font-size:14px;color:var(--ts)}
 .login-link{color:var(--b);font-weight:600;text-decoration:none}
-.login-accounts{margin-top:36px;text-align:center}
-.login-accounts-title{font-size:12px;color:var(--tw);margin-bottom:10px}
-.login-acc-chip{display:inline-block;background:var(--c);padding:8px 20px;border-radius:10px;font-size:14px;color:var(--t);cursor:pointer;margin:4px 6px;border:1.5px solid transparent;transition:all .15s;font-family:inherit}
-.login-acc-chip:hover{border-color:var(--b);background:var(--bb)}
 </style>
 <script>
 async function doLogin(){
@@ -137,14 +130,20 @@ async function doLogin(){
   }catch(e){showErr('网络错误，请重试')}
 }
 function showErr(msg){var el=document.getElementById('loginError');el.textContent=msg;el.style.display='block'}
-// 已有账号快速填充
-var existing = """ + json.dumps({n:"" for n in sorted(_users.keys())}) + r""";
-var accHtml='<div class="login-accounts-title">快速登录已有账号（点击填充昵称）</div>';
-Object.keys(existing).forEach(function(name){
-  accHtml+='<span class="login-acc-chip" onclick="document.getElementById(\'loginName\').value=\''+name+'\';document.getElementById(\'loginPass\').focus()">'+name+'</span>';
-});
-document.getElementById('existingAccounts').innerHTML=accHtml;
 </script>"""
+
+_NAV_ICONS = {
+    "home":     {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 10L12 3l9 7v9a2 2 0 01-2 2H5a2 2 0 01-2-2v-9z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21V12h6v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 10L12 3l9 7v9a2 2 0 01-2 2H5a2 2 0 01-2-2v-9z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21V12h6v9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
+    "input":    {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
+    "map":      {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>'},
+    "report":   {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 20h16M6 16V10M10 16V6M14 16V8M18 16V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 20h16M6 16V10M10 16V6M14 16V8M18 16V4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
+    "review":   {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h12M4 18h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h12M4 18h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
+}
+
+def _nav_bar(active=""):
+    def icon(key, active_cond):
+        return _NAV_ICONS[key]['on'] if active_cond else _NAV_ICONS[key]['off']
+    return f"""<nav class="bn"><a href="/home" class="{'on' if active=='home' else ''}">{icon('home', active=='home')}<span>首页</span></a><a href="/mistake/new" class="{'on' if active=='input' else ''}">{icon('input', active=='input')}<span>录入</span></a><a href="/map" class="{'on' if active=='map' else ''}">{icon('map', active=='map')}<span>版图</span></a><a href="/report" class="{'on' if active=='report' else ''}">{icon('report', active=='report')}<span>报告</span></a></nav>"""
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -253,7 +252,7 @@ async def home(request: Request):
     <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
     <div style="font-size:13px;color:var(--ts);margin-bottom:20px;">开始学习吧</div>
     <div class="gr"><a href="/mistake/new" class="gi" style="background:rgba(91,127,255,.04);"><div class="ic">📝</div><div class="lb">录入错题</div></a><a href="/map" class="gi" style="background:rgba(255,91,107,.04);"><div class="ic">🗺️</div><div class="lb">知识版图</div></a><a href="/report" class="gi" style="background:rgba(91,127,255,.02);"><div class="ic">📊</div><div class="lb">学习报告</div></a><a href="/mistakes" class="gi" style="background:rgba(255,91,107,.02);"><div class="ic">📋</div><div class="lb">错题回顾</div></a></div></div>"""
-    return HTMLResponse(_pg(body, "首页", ("1","","")))
+    return HTMLResponse(_pg(body, "首页", "home"))
 
 # ─── 录入 ──────────────────────────────────────
 
@@ -481,7 +480,7 @@ async def map_page(request: Request):
             sc=m["mastery_score"];c="#3D5FD9" if sc>=0.7 else("#D9821A" if sc>=0.4 else"#E04050");tc="tag-m" if m["pool_status"]=="dormant" else("tag-w" if m["pool_status"]=="active" else"tag-i");st="熟练" if m["pool_status"]=="dormant" else("攻克" if m["pool_status"]=="active" else"加强")
             mh+=f'<div class="crd2"><div class="kpr"><span class="nm">{m["knowledge_point"]}</span><span class="pct" style="color:{c};">{int(sc*100)}%</span><span class="tag {tc}">{st}</span></div><div class="prog"><div class="pf" style="width:{int(sc*100)}%;background:{c};"></div></div></div>'
     body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">知识版图</span></div>{mh or "<div>暂无数据</div>"}</div>'
-    return HTMLResponse(_pg(body,"版图",("","1","")))
+    return HTMLResponse(_pg(body,"版图","map"))
 
 @app.get("/report", response_class=HTMLResponse)
 async def report_page(request: Request):
@@ -496,7 +495,7 @@ async def report_page(request: Request):
             tc="tag-w" if m["pool_status"]=="active" else("tag-i" if m["pool_status"]=="observing" else"tag-m");lb="熟练" if m["pool_status"]=="dormant" else("攻克" if m["pool_status"]=="active" else"加强")
             mh+=f'<div class="crd"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:600;">{m["knowledge_point"]}</span><span style="font-size:22px;font-weight:800;color:{c};">{int(sc*100)}%</span><span class="tag {tc}">{lb}</span></div></div>'
     body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">学习报告</span></div><div class="hero"><div class="big">{int(overall*100)}%</div></div>{mh}</div>'
-    return HTMLResponse(_pg(body,"报告",("","","1")))
+    return HTMLResponse(_pg(body,"报告","report"))
 
 @app.get("/mistakes", response_class=HTMLResponse)
 async def mistakes_list(request: Request):
@@ -536,7 +535,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .tag-m{background:var(--gb);color:#28A745}.tag-i{background:rgba(255,159,67,.08);color:#D9821A}.tag-w{background:var(--rb);color:#E04050}
 .tag-kg{background:rgba(255,91,107,.08);color:#E04050}.tag-te{background:rgba(91,127,255,.08);color:#3D5FD9}.tag-cl{background:rgba(255,159,67,.08);color:#D9821A}
 .bn{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;display:flex;justify-content:space-around;background:var(--w);border-top:1px solid var(--br);height:64px;align-items:center;z-index:100}
-.bn a{display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--tw);text-decoration:none;gap:2px}.bn a .ic{font-size:20px}.bn a.on{color:var(--b)}
+.bn a{display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--tw);text-decoration:none;gap:4px;padding:4px 0}.bn a svg{width:24px;height:24px}.bn a.on{color:var(--b)}
 .hd{text-align:center;padding:48px 24px 32px}
 .gr{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
 .gi{background:var(--w);border-radius:16px;padding:20px 16px;text-align:center;text-decoration:none;display:block;box-shadow:0 1px 2px rgba(0,0,0,.03)}.gi .ic{font-size:28px;margin-bottom:6px}.gi .lb{font-size:13px;font-weight:600;color:var(--t)}
@@ -550,8 +549,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .chip{padding:8px 14px;background:var(--c);border-radius:8px;font-size:13px;color:var(--t);cursor:pointer;border:2px solid transparent}.chip.sel{background:var(--bb);border-color:var(--b);color:var(--b);font-weight:600}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
-    n=nav if nav else("","","")
-    nh=f'<nav class="bn"><a href="/home" class="{"on" if n[0]=="1" else ""}"><span class="ic">🏠</span>首页</a><a href="/mistake/new"><span class="ic">📝</span>录入</a><a href="/map" class="{"on" if n[1]=="1" else ""}"><span class="ic">🗺️</span>版图</a><a href="/report" class="{"on" if n[2]=="1" else ""}"><span class="ic">📊</span>报告</a></nav>'
+    nh = _nav_bar(nav) if nav else ""
     return f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>{title} - 错题Pro</title>{CSS}</head><body>{body}{nh}</body></html>'
 
 # ─── 启动 ──────────────────────────────────────
