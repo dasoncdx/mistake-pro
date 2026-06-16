@@ -68,14 +68,87 @@ def root(request: Request):
 
 # ─── 认证 ──────────────────────────────────────
 
-def _login_html(err=""):
-    u="".join(f'<div class="crd2"><form method="post" action="/login"><input type="hidden" name="name" value="{n}"><div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="font-size:15px;font-weight:600;color:var(--t);">{n}</div></div><input class="inp" name="password" type="password" placeholder="密码" style="width:120px;margin:0;" required></div></form></div>' for n in sorted(_users.keys()))
-    return _pg(f"""<div class="hd"><div style="font-size:28px;font-weight:700;color:var(--t);">错题<span style="color:var(--b);">Pro</span></div><div style="font-size:13px;color:var(--ts);">让每一道错题，变成知识版图上被征服的领地</div></div>
-    <div class="pg">{f'<div class="err-msg">{err}</div>' if err else ''}{u or '<div style="text-align:center;padding:40px;">还没有账号</div>'}<div style="text-align:center;padding:20px;"><a href="/register" style="color:var(--b);font-size:14px;">＋ 创建新账号</a></div></div>""","登录")
+_LOGIN_PAGE = r"""<div class="login-page">
+  <!-- Logo 区 -->
+  <div class="login-logo">
+    <div class="login-icon">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="18" fill="url(#lg)"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="64" y2="64"><stop offset="0" stop-color="#5B7FFF"/><stop offset="1" stop-color="#7B9BFF"/></linearGradient></defs>
+        <path d="M20 36 L28 46 L44 22" stroke="#FFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="login-brand">错题<span class="login-brand-accent">Pro</span></div>
+    <div class="login-subtitle">让每一道错题，变成知识版图上被征服的领地</div>
+  </div>
+
+  <!-- 登录表单 -->
+  <div class="login-form">
+    <div class="login-error" id="loginError" style="display:none;"></div>
+    <input class="login-input" id="loginName" type="text" placeholder="手机号 / 昵称" autocomplete="username">
+    <input class="login-input" id="loginPass" type="password" placeholder="输入密码" autocomplete="current-password">
+    <button class="login-btn" onclick="doLogin()">登 录</button>
+  </div>
+
+  <!-- 底部引导 -->
+  <div class="login-footer">
+    还没有账号？<a href="/register" class="login-link">立即注册</a>
+  </div>
+
+  <!-- 已有测试账号 -->
+  <div class="login-accounts" id="existingAccounts"></div>
+</div>
+
+<style>
+.login-page{max-width:420px;margin:0 auto;padding:0 28px;display:flex;flex-direction:column;min-height:100vh;justify-content:center}
+.login-logo{text-align:center;margin-bottom:40px}
+.login-icon{margin:0 auto 16px;width:64px;height:64px}
+.login-brand{font-size:30px;font-weight:800;color:var(--t);letter-spacing:-0.5px}
+.login-brand-accent{color:var(--b)}
+.login-subtitle{font-size:13px;color:var(--ts);margin-top:10px;line-height:1.5}
+.login-form{display:flex;flex-direction:column;gap:14px}
+.login-input{width:100%;height:52px;background:var(--bg);border:1.5px solid var(--br);border-radius:14px;padding:0 18px;font-size:16px;color:var(--t);outline:none;font-family:inherit;transition:border-color .2s}
+.login-input:focus{border-color:var(--b);background:var(--w)}
+.login-input::placeholder{color:var(--tw)}
+.login-btn{width:100%;height:52px;background:var(--b);color:#FFF;border:none;border-radius:14px;font-size:17px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:6px;transition:opacity .2s}
+.login-btn:active{opacity:.85}
+.login-error{background:var(--rb);color:var(--r);padding:12px 16px;border-radius:12px;font-size:14px;text-align:center}
+.login-footer{text-align:center;margin-top:28px;font-size:14px;color:var(--ts)}
+.login-link{color:var(--b);font-weight:600;text-decoration:none}
+.login-accounts{margin-top:36px;text-align:center}
+.login-accounts-title{font-size:12px;color:var(--tw);margin-bottom:10px}
+.login-acc-chip{display:inline-block;background:var(--c);padding:8px 20px;border-radius:10px;font-size:14px;color:var(--t);cursor:pointer;margin:4px 6px;border:1.5px solid transparent;transition:all .15s;font-family:inherit}
+.login-acc-chip:hover{border-color:var(--b);background:var(--bb)}
+</style>
+<script>
+async function doLogin(){
+  var n=document.getElementById('loginName').value.trim();
+  var p=document.getElementById('loginPass').value;
+  if(!n) return showErr('请输入手机号或昵称');
+  if(!p) return showErr('请输入密码');
+  var d=new FormData();d.append('name',n);d.append('password',p);
+  try{
+    var r=await fetch('/login',{method:'POST',body:d});
+    if(r.redirected){window.location.href=r.url;return}
+    if(r.url.indexOf('error=')>-1){
+      var err=new URL(r.url).searchParams.get('error')||'登录失败';
+      showErr(err);
+    }else{window.location.href=r.url}
+  }catch(e){showErr('网络错误，请重试')}
+}
+function showErr(msg){var el=document.getElementById('loginError');el.textContent=msg;el.style.display='block'}
+// 已有账号快速填充
+var existing = """ + json.dumps({n:"" for n in sorted(_users.keys())}) + r""";
+var accHtml='<div class="login-accounts-title">快速登录已有账号（点击填充昵称）</div>';
+Object.keys(existing).forEach(function(name){
+  accHtml+='<span class="login-acc-chip" onclick="document.getElementById(\'loginName\').value=\''+name+'\';document.getElementById(\'loginPass\').focus()">'+name+'</span>';
+});
+document.getElementById('existingAccounts').innerHTML=accHtml;
+</script>"""
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return HTMLResponse(_login_html(request.query_params.get("error","")))
+    return HTMLResponse(_pg(_LOGIN_PAGE, "登录"))
 
 @app.post("/login")
 async def login_post(request: Request):
