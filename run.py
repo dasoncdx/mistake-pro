@@ -230,16 +230,29 @@ async def home(request: Request):
 
     conn = ctx.get("conn")
     subject_cards = ""
+    all_subjects = list(SUBJECT_NAMES.keys())
     for subj in subjects:
         count = 0
         if conn:
             from db import list_mistakes
             ms = list_mistakes(conn, subject=subj, limit=1000)
             count = len(ms)
-        subject_cards += f'''<a href="/mistakes?subject={subj}" class="subject-card">
-          <span class="subject-name">{SUBJECT_NAMES.get(subj, subj)}</span>
-          <span class="subject-count">{count} 道错题</span>
-        </a>'''
+        can_remove = len(subjects) > 1
+        subject_cards += f'''<div class="subject-card-row">
+          <a href="/mistakes?subject={subj}" class="subject-card">
+            <span class="subject-name">{SUBJECT_NAMES.get(subj, subj)}</span>
+            <span class="subject-count">{count} 道错题</span>
+          </a>
+          {f'<button class="subject-remove" onclick="removeSubject(\'{subj}\')" title="移除">×</button>' if can_remove else ''}
+        </div>'''
+
+    # Subjects not yet added
+    available = [s for s in all_subjects if s not in subjects]
+    add_html = ""
+    if available:
+        add_html = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">' + ''.join(
+            f'<button class="subject-add-btn" onclick="addSubject(\'{s}\')">+ {SUBJECT_NAMES.get(s, s)}</button>' for s in available
+        ) + '</div>'
 
     grade_options = ''.join(f'<option value="{k}" {"selected" if k==grade else ""}>{v}</option>' for k,v in GRADE_OPTIONS)
 
@@ -255,11 +268,23 @@ async def home(request: Request):
     </a>
     <div class="section-title">我的错题本</div>
     <div class="subject-grid">{subject_cards or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无科目，先录入错题吧</div>"}</div>
+    {add_html}
     </div>
     <script>
     async function updateGrade(v){{
       var d=new FormData();d.append('grade',v);
       await fetch('/update-grade',{{method:'POST',body:d}});
+    }}
+    async function addSubject(s){{
+      var d=new FormData();d.append('subject',s);
+      await fetch('/add-subject',{{method:'POST',body:d}});
+      location.reload();
+    }}
+    async function removeSubject(s){{
+      if(!confirm('确定移除 '+s+' ？')) return;
+      var d=new FormData();d.append('subject',s);
+      await fetch('/remove-subject',{{method:'POST',body:d}});
+      location.reload();
     }}
     </script>"""
     return HTMLResponse(_pg(body, "错题本", "notebook"))
@@ -673,6 +698,41 @@ async def update_grade(request: Request):
         except: pass
     return JSONResponse({"ok": True})
 
+@app.post("/add-subject")
+async def add_subject(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    subj = form.get("subject", "").strip()
+    if subj in SUBJECT_NAMES:
+        n = ctx["student"]
+        subs = _users[n].get("subjects", ["math"])
+        if subj not in subs:
+            subs.append(subj)
+            _users[n]["subjects"] = subs
+            try:
+                d = os.path.join(_DATA_ROOT, "user_data", n)
+                json.dump(_users[n], open(os.path.join(d, "profile.json"), "w"), ensure_ascii=False, indent=2)
+            except: pass
+    return JSONResponse({"ok": True})
+
+@app.post("/remove-subject")
+async def remove_subject(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    subj = form.get("subject", "").strip()
+    n = ctx["student"]
+    subs = _users[n].get("subjects", ["math"])
+    if subj in subs and len(subs) > 1:
+        subs.remove(subj)
+        _users[n]["subjects"] = subs
+        try:
+            d = os.path.join(_DATA_ROOT, "user_data", n)
+            json.dump(_users[n], open(os.path.join(d, "profile.json"), "w"), ensure_ascii=False, indent=2)
+        except: pass
+    return JSONResponse({"ok": True})
+
 # ─── CSS ──────────────────────────────────────
 
 CSS = """<style>
@@ -728,7 +788,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .profile-grade{font-size:13px;color:var(--ts);margin-top:4px}
 .kp-card{display:flex;align-items:center;gap:8px;background:var(--w);border-radius:14px;padding:14px 16px;margin-bottom:8px;text-decoration:none;box-shadow:0 1px 2px rgba(0,0,0,.03)}
 .kp-name{flex:1;font-size:14px;font-weight:600;color:var(--t)}
-.kp-score{font-size:14px;font-weight:700}</style>"""
+.kp-score{font-size:14px;font-weight:700}
+.subject-card-row{display:flex;align-items:center;gap:6px}
+.subject-card-row .subject-card{flex:1}
+.subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.subject-remove:active{opacity:.7}
+.subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
