@@ -42,7 +42,7 @@ def call_llm(system_prompt: str, user_prompt: str, model: str = "deepseek-chat")
 
 
 def _parse_json(text: str) -> dict | list:
-    """从LLM返回的文本中提取JSON，带容错"""
+    """从LLM返回的文本中提取JSON，带容错。使用json-repair处理畸形JSON。"""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
@@ -50,15 +50,28 @@ def _parse_json(text: str) -> dict | list:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        if text.startswith("{"):
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-        elif text.startswith("["):
-            match = re.search(r"\[.*\]", text, re.DOTALL)
-        else:
-            raise
-        if match:
+        pass
+    # Try json-repair for malformed/truncated JSON
+    try:
+        from json_repair import repair_json
+        repaired = repair_json(text)
+        return json.loads(repaired)
+    except Exception:
+        pass
+    # Last resort: regex extraction
+    if text.startswith("{"):
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+    elif text.startswith("["):
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+    else:
+        raise RuntimeError(f"无法解析JSON: {text[:200]}...")
+    if match:
+        try:
             return json.loads(match.group(0))
-        raise
+        except json.JSONDecodeError:
+            from json_repair import repair_json
+            return json.loads(repair_json(match.group(0)))
+    raise RuntimeError(f"无法解析JSON: {text[:200]}...")
 
 
 # ─── High-level Functions ───────────────────────────────────
