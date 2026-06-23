@@ -51,13 +51,21 @@ def generate_knowledge_tree(grade_level: str, subject: str = "数学",
   }}
 ]"""
     client = _get_client()
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        max_tokens=4096, temperature=0.2,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    raw = response.choices[0].message.content.strip()
-    return _parse_json(raw)
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                max_tokens=8192, temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            raw = response.choices[0].message.content.strip()
+            result = _parse_json(raw)
+            if not isinstance(result, list):
+                raise TypeError("Expected JSON array")
+            return result
+        except Exception as e:
+            if attempt == 2:
+                raise RuntimeError(f"知识树生成失败（重试3次后）: {e}")
 
 
 def seed_knowledge_base(conn, grade_level: str, subject: str = "math",
