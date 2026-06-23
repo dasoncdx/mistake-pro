@@ -80,6 +80,22 @@ CREATE TABLE IF NOT EXISTS knowledge_mastery (
 
 CREATE INDEX IF NOT EXISTS idx_mastery_review ON knowledge_mastery(next_review_at);
 CREATE INDEX IF NOT EXISTS idx_mastery_pool ON knowledge_mastery(pool_status);
+
+CREATE TABLE IF NOT EXISTS knowledge_base (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject         TEXT NOT NULL DEFAULT 'math',
+    grade_level     TEXT NOT NULL,
+    curriculum_ver  TEXT NOT NULL DEFAULT '人教版',
+    unit_name       TEXT NOT NULL,
+    knowledge_point TEXT NOT NULL,
+    description     TEXT,
+    difficulty_level TEXT DEFAULT 'intermediate',
+    example_questions TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    UNIQUE(grade_level, subject, knowledge_point, curriculum_ver)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_lookup ON knowledge_base(grade_level, subject, knowledge_point);
 """
 
 
@@ -283,3 +299,80 @@ def update_mastery_review(conn: sqlite3.Connection, knowledge_point: str, subjec
         WHERE knowledge_point = ? AND subject = ?
     """, (next_review_at, pool_status, now, knowledge_point, subject))
     conn.commit()
+
+# ─── Knowledge Base CRUD ────────────────────────────────────
+
+def upsert_knowledge_point(conn: sqlite3.Connection, **kwargs) -> int:
+    """Insert or update a knowledge point in the knowledge base. Returns id."""
+    fields = ['subject','grade_level','curriculum_ver','unit_name',
+              'knowledge_point','description','difficulty_level','example_questions']
+    values = {k: kwargs[k] for k in fields if k in kwargs}
+    # example_questions should be a JSON string
+    if 'example_questions' in values and not isinstance(values['example_questions'], str):
+        import json
+        values['example_questions'] = json.dumps(values['example_questions'], ensure_ascii=False)
+    existing = conn.execute(
+        "SELECT id FROM knowledge_base WHERE grade_level=? AND subject=? AND knowledge_point=? AND curriculum_ver=?",
+        (values.get('grade_level',''), values.get('subject','math'), values.get('knowledge_point',''), values.get('curriculum_ver','人教版'))
+    ).fetchone()
+    if existing:
+        set_clause = ', '.join(f"{k}=?" for k in values)
+        conn.execute(f"UPDATE knowledge_base SET {set_clause} WHERE id=?",
+                     list(values.values()) + [existing['id']])
+        conn.commit()
+        return existing['id']
+    else:
+        cols = ', '.join(values.keys())
+        placeholders = ', '.join('?' for _ in values)
+        cur = conn.execute(f"INSERT INTO knowledge_base ({cols}) VALUES ({placeholders})", list(values.values()))
+        conn.commit()
+        return cur.lastrowid
+
+def search_knowledge_point(conn: sqlite3.Connection, knowledge_point: str,
+                           grade_level: str = None, subject: str = 'math') -> dict:
+    """Find the closest matching knowledge point. Exact match first, then fuzzy."""
+    params = [subject]
+    if grade_level:
+        row = conn.execute(
+            "SELECT * FROM knowledge_base WHERE subject=? AND grade_level=? AND knowledge_point=?",
+            (subject, grade_level, knowledge_point)).fetchone()
+        if row: return dict(row)
+        # Fuzzy: knowledge_point contains the search string
+        row = conn.execute(
+            "SELECT * FROM knowledge_base WHERE subject=? AND grade_level=? AND knowledge_point LIKE ?",
+            (subject, grade_level, f'%{knowledge_point}%')).fetchone()
+        if row: return dict(row)
+    else:
+        row = conn.execute(
+            "SELECT * FROM knowledge_base WHERE subject=? AND knowledge_point=?",
+            (subject, knowledge_point)).fetchone()
+        if row: return dict(row)
+        row = conn.execute(
+            "SELECT * FROM knowledge_base WHERE subject=? AND knowledge_point LIKE ?",
+            (subject, f'%{knowledge_point}%')).fetchone()
+        if row: return dict(row)
+    return None
+
+def list_knowledge_points(conn: sqlite3.Connection, grade_level: str = None,
+                          subject: str = 'math', limit: int = 200) -> list[dict]:
+    """List knowledge points, optionally filtered by grade."""
+    sql = "SELECT * FROM knowledge_base WHERE subject=?"
+    params = [subject]
+    if grade_level:
+        sql += " AND grade_level=?"
+        params.append(grade_level)
+    sql += " ORDER BY grade_level, unit_name, knowledge_point LIMIT ?"
+    params.append(limit)
+    return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+def get_kb_by_kp(conn: sqlite3.Connection, knowledge_point: str,
+                 grade_level: str = None, subject: str = 'math') -> dict:
+    """Get knowledge base entry and parse example_questions from JSON."""
+    entry = search_knowledge_point(conn, knowledge_point, grade_level, subject)
+    if entry and entry.get('example_questions'):
+        import json
+        try:
+            entry['example_questions'] = json.loads(entry['example_questions'])
+        except json.JSONDecodeError:
+            entry['example_questions'] = []
+    return entry

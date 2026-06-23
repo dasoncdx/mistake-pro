@@ -1,6 +1,6 @@
 # 错题Pro — 技术方案文档（TECH DESIGN）
 
-> 版本：v1.2 | 对应PRD：v1.2 | 已部署：https://mistake-pro.zeabur.app
+> 版本：v1.3 | 对应PRD：v1.3 | 已部署：https://mistake-pro.zeabur.app
 
 ---
 
@@ -1191,6 +1191,32 @@ v1.2 路由变更：
   4. 已知踩坑：必须用 Procfile 指定 python run.py，不能依赖 Zeabur 自动检测 uvicorn
 
 域名：https://mistake-pro.zeabur.app
+```
+
+### 8.1.3 v1.3 — 双引擎大改（OCR流水线 + 知识库）
+
+```
+错题识别引擎（4阶段流水线）：
+  - 新增：pure_ocr_prompt() in prompts.py — 纯OCR文字提取（分离OCR与诊断）
+  - 新增：pure_ocr_from_bytes() in ai.py — 调用DeepSeek Vision，MIME类型自动检测
+  - 重写：_JS_OCR — 4阶段JS流程：ocrUpload → renderSelectionUI → confirmSelection
+  - 重写：POST /mistake/ocr — 纯OCR返回题目列表[{question_index, question_text, student_answer, has_correction_mark, correction_text}]
+  - 新增：POST /mistake/diagnose — 接收选中题目，逐题诊断+保存+生成变式题
+  - 新增：selection UI组件 — .qcard/.qcheck/.qbadge-wrong/.sel-all-btn + 全选错题/全选所有
+  - 修复：OCR MIME type从硬编码image/jpeg改为从上传文件自动检测
+
+举一反三引擎（知识库驱动）：
+  - 新增：knowledge_base表（db.py Schema）— 按年级/学科/教材存储知识点+例题
+  - 新增：knowledge_base.py — generate_knowledge_tree/seed_knowledge_base/seed_all_grades/expand_knowledge_point/match_knowledge_point/get_few_shot_examples/get_kb_stats
+  - 新增：variant_gen_prompt_with_examples() in prompts.py — few-shot变式题prompt
+  - 增强：generate_variants() 支持 few_shot_examples 参数 — 查知识库取例题作为参考
+  - 集成：所有变式题生成点（/mistake/diagnose, /mistake/new, /generate-variants）接入知识库
+  - 新增：POST /admin/seed-knowledge-base — 一键种子1-12年级知识库
+  - 新增：GET /admin/kb-stats — 知识库统计
+
+其他改动：
+  - /mistake/new（POST）支持 subject 参数（不再硬编码"math"）
+  - goM() 手动录入同样传递当前选择的学科
 ```
 
 ### 8.2 未来迁移路径

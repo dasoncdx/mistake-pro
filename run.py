@@ -292,37 +292,83 @@ async def home(request: Request):
 # ─── 录入 ──────────────────────────────────────
 
 _JS_OCR = r"""
-var vs=[],idx=0,cc=0;
+var vs=[],idx=0,cc=0,_ocrQuestions=[];
 async function ocrUpload(){
   var f=document.getElementById('photo').files[0];
   if(!f) return alert('请先选择图片');
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
+  document.getElementById('ldMsg').textContent='AI正在识别图片中的题目...';
   var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/ocr',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    document.getElementById('ocrResult').style.display='block';
-    document.getElementById('ocrProblem').value=j.ocr_problem||'';
-    document.getElementById('ocrWrong').value=j.ocr_student_answer||'';
-    document.getElementById('ocrDiag').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);margin-top:12px;"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);">'+esc(j.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin:8px 0;"><span class="tag tag-w">'+esc(j.error_type)+'</span><span style="font-size:13px;color:var(--ts);">'+esc(j.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;font-weight:600;">'+esc(j.correct_answer)+'</span></div></div>';
-    vs=j.variants;idx=0;cc=0;
+    _ocrQuestions=j.questions||[];
+    renderSelectionUI(_ocrQuestions);
   }catch(e){alert(e);location.reload()}
 }
-function ocrConfirm(){
-  var p=document.getElementById('ocrProblem').value.trim();
-  var w=document.getElementById('ocrWrong').value.trim();
-  if(!p) return alert('题目不能为空');
-  var d=new FormData();d.append('problem',p);d.append('wrong_answer',w);d.append('subject',document.getElementById('curSubject').value);
-  document.getElementById('ocrResult').style.display='none';
+function renderSelectionUI(questions){
+  if(!questions||questions.length===0){alert('未识别到题目，请重新拍照');location.reload();return}
+  var sel=document.getElementById('sel');
+  var html='<div class="sel-header"><div class="sel-title">识别到 '+questions.length+' 道题</div><div style="display:flex;gap:8px;"><button type="button" class="sel-all-btn" onclick="selAllMarked()">全选错题</button><button type="button" class="sel-all-btn" style="border-color:var(--br);" onclick="selAll()">全选所有</button></div></div>';
+  html+='<div class="sel-count" id="selCount">已选 0/'+questions.length+' 道</div>';
+  questions.forEach(function(q,i){
+    var marked=q.has_correction_mark;
+    var chk=marked?' checked':'';
+    html+='<label class="qcard'+(marked?' qcard-marked':'')+'" id="qcard_'+i+'">';
+    html+='<div class="qcard-left"><input type="checkbox" class="qcheck" id="qchk_'+i+'"'+chk+' onchange="updateSelCount('+questions.length+')"><span class="qcard-idx">'+esc(q.question_index||(i+1))+'</span></div>';
+    html+='<div class="qcard-body"><div class="qcard-text">'+esc(q.question_text||'')+'</div>';
+    if(q.student_answer) html+='<div class="qcard-ans">✏️ '+esc(q.student_answer)+'</div>';
+    if(marked) html+='<span class="qbadge-wrong">批改痕迹</span>';
+    if(q.correction_text) html+='<div class="qcard-corr">批注：'+esc(q.correction_text)+'</div>';
+    html+='</div></label>';
+  });
+  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="confirmSelection()">确认选择，开始AI诊断</button>';
+  sel.innerHTML=html;sel.style.display='block';updateSelCount(questions.length);
+}
+function updateSelCount(total){
+  var n=document.querySelectorAll('.qcheck:checked').length;
+  document.getElementById('selCount').textContent='已选 '+n+'/'+total+' 道';
+  document.getElementById('selConfirmBtn').textContent='确认选择，开始AI诊断（'+n+'道）';
+}
+function selAllMarked(){
+  document.querySelectorAll('.qcheck').forEach(function(cb,i){
+    cb.checked=document.getElementById('qcard_'+i).classList.contains('qcard-marked');
+  });
+  updateSelCount(document.querySelectorAll('.qcheck').length);
+}
+function selAll(){
+  document.querySelectorAll('.qcheck').forEach(function(cb){cb.checked=true});
+  updateSelCount(document.querySelectorAll('.qcheck').length);
+}
+async function confirmSelection(){
+  var selectedIndices=[];
+  document.querySelectorAll('.qcheck:checked').forEach(function(cb){
+    selectedIndices.push(parseInt(cb.id.replace('qchk_','')));
+  });
+  if(selectedIndices.length===0) return alert('请至少选择一道题');
+  var selectedQuestions=selectedIndices.map(function(i){return _ocrQuestions[i];});
+  document.getElementById('sel').style.display='none';
   document.getElementById('ld').style.display='block';
-  fetch('/mistake/new',{method:'POST',body:d}).then(r=>r.json()).then(j=>{
+  document.getElementById('ldMsg').textContent='AI正在诊断 '+selectedQuestions.length+' 道错题...';
+  var d=new FormData();d.append('questions',JSON.stringify(selectedQuestions));d.append('subject',document.getElementById('curSubject').value);
+  try{
+    var r=await fetch('/mistake/diagnose',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    document.getElementById('r').innerHTML='<p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+j.variants.length+'</b> 道变式题</p>';
-    vs=j.variants;idx=0;cc=0;nq();
-  }).catch(e=>{alert(e);location.reload()});
+    if(j.results&&j.results.length>0){
+      var html='<div style="font-size:14px;font-weight:600;color:var(--t);margin:8px 0;">已诊断 '+j.results.length+' 道错题</div>';
+      var et={knowledge_gap:'知识盲区',thinking_error:'思路错误',careless:'粗心'};
+      j.results.forEach(function(res){
+        html+='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);margin-top:10px;"><div style="font-size:14px;font-weight:600;color:var(--t);">'+esc(res.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;"><span class="tag tag-w">'+et[res.error_type]+'</span><span style="font-size:13px;color:var(--ts);">'+esc(res.error_analysis)+'</span></div><div style="font-size:13px;">正确答案：<b>'+esc(res.correct_answer)+'</b></div></div>';
+      });
+      document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
+      vs=[];j.results.forEach(function(res){if(res.variants){res.variants.forEach(function(v){vs.push(v);});}});
+      idx=0;cc=0;
+      if(vs.length>0) nq();
+    }
+  }catch(e){alert(e);location.reload()}
 }
 async function goM(){
   var a=document.getElementById('prob').value.trim();
@@ -330,19 +376,22 @@ async function goM(){
   if(!a) return alert('请输入题目');
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
-  var d=new FormData();d.append('problem',a);d.append('wrong_answer',b);d.append('subject','math');
+  document.getElementById('ldMsg').textContent='AI正在诊断...';
+  var d=new FormData();d.append('problem',a);d.append('wrong_answer',b);d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/new',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    document.getElementById('r').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:12px;">'+esc(j.diagnosis.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;"><span class="tag tag-w">'+esc(j.diagnosis.error_type)+'</span><span style="font-size:13px;color:var(--ts);line-height:1.6;">'+esc(j.diagnosis.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;color:var(--t);font-weight:600;">'+esc(j.diagnosis.correct_answer)+'</span></div></div><p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+j.variants.length+'</b> 道变式题</p>';
+    var et={knowledge_gap:'知识盲区',thinking_error:'思路错误',careless:'粗心'};
+    document.getElementById('r').innerHTML='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);"><div style="font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">AI 诊断</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:12px;">'+esc(j.diagnosis.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;"><span class="tag tag-w">'+et[j.diagnosis.error_type]+'</span><span style="font-size:13px;color:var(--ts);line-height:1.6;">'+esc(j.diagnosis.error_analysis)+'</span></div><div style="display:flex;align-items:flex-start;gap:8px;"><span class="tag" style="background:var(--bb);color:#3D5FD9;">正确答案</span><span style="font-size:13px;color:var(--t);font-weight:600;">'+esc(j.diagnosis.correct_answer)+'</span></div></div><p style="font-size:13px;color:var(--ts);margin:12px 0;">已生成 <b>'+j.variants.length+'</b> 道变式题</p>';
+    document.getElementById('r').style.display='block';
     vs=j.variants;idx=0;cc=0;nq();
   }catch(e){alert(e);location.reload()}
 }
 function nq(){
   if(idx>=vs.length){fp();return}
   var v=vs[idx];
-  var dl={easy:'🟢 热���',same:'🟡 标准',slightly_harder:'🔴 挑战'}[v.difficulty]||'';
+  var dl={easy:'🟢 热身',same:'🟡 标准',slightly_harder:'🔴 挑战'}[v.difficulty]||'';
   document.getElementById('p').innerHTML='<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);margin-bottom:8px;">'+dl+' · 第'+(idx+1)+'/'+vs.length+'题</div><div style="font-size:16px;color:var(--t);line-height:1.8;margin-bottom:16px;">'+esc(v.problem)+'</div><input class="inp" id="pa" placeholder="输入你的答案"><div id="fb"></div><button class="btn btn-p" onclick="goAns('+v.id+')" id="sb">提交答案</button></div>';
   document.getElementById('p').style.display='block';
   setTimeout(function(){var el=document.getElementById('pa');if(el)el.focus()},100);
@@ -369,8 +418,7 @@ async function goAns(vid){
 function fp(){
   document.getElementById('p').innerHTML='<div class="crd" style="text-align:center;"><div style="font-size:40px;">🎉</div><div style="font-size:20px;font-weight:700;color:var(--t);">练习完成！</div><div style="font-size:14px;color:var(--ts);">正确 '+cc+'/'+vs.length+'</div><a href="/home" class="btn btn-p" style="margin-top:16px;">返回首页</a></div>';
 }
-function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-"""
+function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}"""
 
 @app.get("/mistake/new", response_class=HTMLResponse)
 async def mistake_page(request: Request):
@@ -386,21 +434,16 @@ async def mistake_page(request: Request):
     </div>
     <input type="hidden" id="curSubject" value="math">
     <div class="label">方式一：拍照识别（推荐）</div>
-    <div class="crd" style="text-align:center;padding:24px;border:2px dashed var(--br);background:var(--card);">
+    <div class="crd" style="text-align:center;padding:24px;border:2px dashed var(--br);">
       <input type="file" id="photo" accept="image/*" capture="environment" style="margin-bottom:12px;font-size:14px;width:100%;">
-      <button class="btn btn-p" onclick="ocrUpload()">📷 拍照识别 + AI诊断</button>
+      <button class="btn btn-p" onclick="ocrUpload()">📷 拍照识别</button>
     </div>
     <div class="label" style="margin-top:20px;">方式二：手动输入</div>
     <textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
     <div class="label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
     <button class="btn btn-p" onclick="goM()">提交，开始AI诊断</button></div>
-    <div id="ld" style="display:none;text-align:center;padding:40px;"><div class="spinner"></div><div style="color:var(--ts);">AI正在分析中...</div></div>
-    <div id="ocrResult" style="display:none;margin-top:16px;">
-      <div class="label">识别结果（可修改）</div><textarea class="txa" id="ocrProblem"></textarea>
-      <div class="label">错误答案（可修改）</div><input class="inp" id="ocrWrong">
-      <div id="ocrDiag"></div>
-      <button class="btn btn-p" onclick="ocrConfirm()">确认提交，生成变式题</button>
-    </div>
+    <div id="ld" style="display:none;text-align:center;padding:40px;"><div class="spinner"></div><div id="ldMsg" style="color:var(--ts);">AI正在识别题目...</div></div>
+    <div id="sel" style="display:none;"></div>
     <div id="r" style="display:none;"></div><div id="p" style="display:none;"></div></div>
     <script>function setSubj(s,el){document.querySelectorAll('.chip-row .chip').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');document.getElementById('curSubject').value=s};</script>
     <script>""" + _JS_OCR + "</script>"
@@ -408,59 +451,69 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/ocr")
 async def mistake_ocr(request: Request):
-    """拍照OCR + AI诊断 + 变式生成 一键完成"""
+    """Stage 1: Pure OCR - extract questions from photo, no diagnosis"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
     photo = form.get("photo")
     if not photo or not hasattr(photo, 'filename') or not photo.filename:
         return JSONResponse({"error":"请上传图片"}, 400)
-    import base64
     img_bytes = await photo.read()
-    img_b64 = base64.b64encode(img_bytes).decode()
+    pf = ctx["profile"]
+    grade = pf.get("grade_level", "grade_4")
+    subject = form.get("subject", "math")
+    ext = os.path.splitext(photo.filename)[1].lower()
+    mime_map = {"png":"image/png","jpg":"image/jpeg","jpeg":"image/jpeg","gif":"image/gif","webp":"image/webp"}
+    mime_type = mime_map.get(ext, "image/jpeg")
+    from ai import pure_ocr_from_bytes
+    questions = pure_ocr_from_bytes(img_bytes, grade, mime_type, subject)
+    return JSONResponse({"questions": questions})
 
+
+@app.post("/mistake/diagnose")
+async def mistake_diagnose(request: Request):
+    """Stage 4: Diagnose selected questions one by one, save to DB, generate variants"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    questions_json = form.get("questions", "[]")
+    questions = json.loads(questions_json)
+    if not questions:
+        return JSONResponse({"error":"请选择题目"}, 400)
     pf = ctx["profile"]
     grade = pf.get("grade_level", "grade_4")
     curriculum = pf.get("curriculum_version", "人教版")
-
-    from ai import _get_client
-    client = _get_client()
-    from prompts import ocr_diagnosis_prompt
-    prompt = ocr_diagnosis_prompt(grade, curriculum)
-
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        max_tokens=2048, temperature=0.3,
-        messages=[{"role":"user","content": [
-            {"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{img_b64}"}},
-            {"type":"text","text":prompt},
-        ]}]
-    )
-    raw = response.choices[0].message.content.strip()
-    import re
-    if raw.startswith("```"): raw = re.sub(r"^```(?:json)?\s*","",raw); raw = re.sub(r"\s*```$","",raw)
-    ocr_data = json.loads(raw)
-
-    problem = ocr_data.get("ocr_problem","")
-    wrong = ocr_data.get("ocr_student_answer","")
-    diag = {"knowledge_point": ocr_data["knowledge_point"],
-            "error_type": ocr_data["error_type"],
-            "error_analysis": ocr_data["error_analysis"],
-            "correct_answer": ocr_data["correct_answer"]}
-
-    from ai import generate_variants
-    variants = generate_variants(diag["knowledge_point"], diag["error_type"],
-        diag["error_analysis"], grade, curriculum, "easy", 3)
-    diffs = ["easy","easy","same"]; saved = []
-    for i, v in enumerate(variants):
-        saved.append({"id": -1, "problem": v["problem"],
-                      "difficulty": diffs[i] if i < len(diffs) else "same"})
-
-    return JSONResponse({"ocr_problem": problem, "ocr_student_answer": wrong,
-        "knowledge_point": diag["knowledge_point"], "error_type": diag["error_type"],
-        "error_analysis": diag["error_analysis"], "correct_answer": diag["correct_answer"],
-        "variants": saved})
-
+    subject = form.get("subject", "math")
+    conn = ctx["conn"]
+    from ai import diagnose_mistake, generate_variants
+    from db import insert_mistake, insert_variant
+    results = []
+    for q in questions:
+        problem = q.get("question_text", "").strip()
+        wrong = q.get("student_answer", "") or ""
+        if not problem:
+            continue
+        diag = diagnose_mistake(problem, wrong, grade, curriculum)
+        mid = insert_mistake(conn, subject=subject, original_problem=problem,
+            wrong_answer=wrong, correct_answer=diag.get("correct_answer",""),
+            knowledge_point=diag["knowledge_point"], error_type=diag["error_type"],
+            error_analysis=diag["error_analysis"], pool_status="active",
+            grade_level=grade, curriculum_ver=curriculum)
+        from knowledge_base import get_few_shot_examples
+        examples = get_few_shot_examples(conn, diag["knowledge_point"], grade, subject)
+        variants = generate_variants(diag["knowledge_point"], diag["error_type"],
+            diag["error_analysis"], grade, curriculum, "same", 3, False, examples)
+        diffs = ["easy","same","slightly_harder"]
+        saved = []
+        for i, v in enumerate(variants):
+            vid = insert_variant(conn, mistake_id=mid, problem_text=v["problem"],
+                correct_answer=v["correct_answer"],
+                difficulty=diffs[i] if i < len(diffs) else "same")
+            saved.append({"id":vid, "problem":v["problem"], "difficulty":diffs[i] if i<len(diffs) else"same"})
+        results.append({"knowledge_point":diag["knowledge_point"],
+            "error_type":diag["error_type"], "error_analysis":diag["error_analysis"],
+            "correct_answer":diag["correct_answer"], "variants":saved})
+    return JSONResponse({"results": results})
 
 @app.post("/mistake/new")
 async def mistake_post(request: Request):
@@ -469,12 +522,15 @@ async def mistake_post(request: Request):
     form=await request.form(); problem=form.get("problem","").strip(); wrong=form.get("wrong_answer","").strip()
     if not problem: return JSONResponse({"error":"题目不能为空"},400)
     pf=ctx["profile"]; grade=pf.get("grade_level","grade_4"); curriculum=pf.get("curriculum_version","人教版")
+    subject=form.get("subject","math")
     from ai import diagnose_mistake, generate_variants
     diag=diagnose_mistake(problem,wrong,grade,curriculum)
     conn=ctx["conn"]
     from db import insert_mistake, insert_variant
-    mid=insert_mistake(conn,subject="math",original_problem=problem,wrong_answer=wrong,correct_answer=diag.get("correct_answer",""),knowledge_point=diag["knowledge_point"],error_type=diag["error_type"],error_analysis=diag["error_analysis"],pool_status="active",grade_level=grade,curriculum_ver=curriculum)
-    variants=generate_variants(diag["knowledge_point"],diag["error_type"],diag["error_analysis"],grade,curriculum,"easy",3)
+    mid=insert_mistake(conn,subject=subject,original_problem=problem,wrong_answer=wrong,correct_answer=diag.get("correct_answer",""),knowledge_point=diag["knowledge_point"],error_type=diag["error_type"],error_analysis=diag["error_analysis"],pool_status="active",grade_level=grade,curriculum_ver=curriculum)
+    from knowledge_base import get_few_shot_examples
+    kp_examples=get_few_shot_examples(conn,diag["knowledge_point"],grade,subject)
+    variants=generate_variants(diag["knowledge_point"],diag["error_type"],diag["error_analysis"],grade,curriculum,"easy",3,False,kp_examples)
     diffs=["easy","easy","same"]; saved=[]
     for i,v in enumerate(variants):
         vid=insert_variant(conn,mistake_id=mid,problem_text=v["problem"],correct_answer=v["correct_answer"],difficulty=diffs[i] if i<len(diffs) else"same")
@@ -633,7 +689,9 @@ async def generate_variants_post(request: Request):
     grade = pf.get("grade_level", "grade_4")
     curriculum = pf.get("curriculum_version", "人教版")
     from ai import generate_variants
-    variants = generate_variants(kp, "thinking_error", "", grade, curriculum, "same", 3)
+    from knowledge_base import get_few_shot_examples
+    examples = get_few_shot_examples(conn, kp, grade, "math") if conn else []
+    variants = generate_variants(kp, "thinking_error", "", grade, curriculum, "same", 3, False, examples)
     return JSONResponse({"variants": variants})
 
 # ─── 我的 ──────────────────────────────────────
@@ -794,13 +852,47 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
     return f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>{title} - 错题Pro</title>{CSS}</head><body>{body}{nh}</body></html>'
 
 # ─── 启动 ──────────────────────────────────────
+
+# ─── 管理 ──────────────────────────────────────
+
+@app.post("/admin/seed-knowledge-base")
+async def admin_seed_kb(request: Request):
+    """Seed the knowledge base for all grades 1-12"""
+    from knowledge_base import seed_all_grades
+    conn = None
+    try:
+        from db import get_conn
+        conn = get_conn("demo")
+        results = seed_all_grades(conn, "math", "人教版")
+        return JSONResponse({"ok": True, "results": results})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, 500)
+    finally:
+        if conn:
+            conn.close()
+
+@app.get("/admin/kb-stats")
+async def admin_kb_stats(request: Request):
+    """Get knowledge base stats"""
+    from knowledge_base import get_kb_stats
+    conn = None
+    try:
+        from db import get_conn
+        conn = get_conn("demo")
+        stats = get_kb_stats(conn, "math")
+        return JSONResponse(stats)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, 500)
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     import uvicorn

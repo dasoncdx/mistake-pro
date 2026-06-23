@@ -85,6 +85,41 @@ def variant_gen_prompt(knowledge_point: str, error_type: str, error_analysis: st
 [{{"problem": "题目文本", "correct_answer": "正确答案", "difficulty": "{difficulty}"}}]"""
 
 
+def variant_gen_prompt_with_examples(knowledge_point: str, error_type: str,
+                                      error_analysis: str, grade_level: str,
+                                      curriculum: str, difficulty: str, count: int,
+                                      few_shot_examples: list[dict]) -> str:
+    examples_text = ""
+    if few_shot_examples:
+        examples_text = "\n=== 参考例题（借鉴题型风格和难度，必须出全新题目）===\n"
+        for i, ex in enumerate(few_shot_examples):
+            examples_text += f"{i+1}. 题目：{ex.get('problem','')}\n"
+            examples_text += f"   答案：{ex.get('correct_answer','')}\n"
+            if ex.get('analysis'):
+                examples_text += f"   分析：{ex.get('analysis','')}\n"
+            examples_text += f"   难度：{ex.get('difficulty','intermediate')}\n\n"
+
+    return f"""请为一位{grade_level}学生（{curriculum}）设计{count}道变式练习题。
+
+=== 背景 ===
+目标知识点：{knowledge_point}
+学生的错误类型：{error_type}
+错误分析：{error_analysis}
+{examples_text}
+=== 设计要求 ===
+- 参考上述例题的题型风格和难度，但必须出全新的题目（不能原样照搬）
+- 难度：{difficulty}
+- 改变题目场景、人物、具体数字、表述方式
+- 保持同一个知识点的考察核心不变
+- 题目彼此之间要有明显差异（不能只改数字）
+- 适合{grade_level}学生的阅读和理解水平
+- 题目内容积极健康，符合社会主义核心价值观
+
+=== 输出格式 ===
+只返回JSON数组，不要markdown代码块：
+[{{"problem": "题目文本", "correct_answer": "正确答案", "difficulty": "{difficulty}"}}]"""
+
+
 # ─── Answer Check Prompt ────────────────────────────────────
 
 def answer_check_prompt(problem: str, correct_answer: str, student_answer: str,
@@ -155,3 +190,27 @@ def ocr_diagnosis_prompt(grade_level: str, curriculum: str = "人教版") -> str
   "error_analysis": "...",
   "correct_answer": "..."
 }}"""
+
+
+# ─── Pure OCR Prompt (v1.2: split OCR from diagnosis) ─────────
+
+def pure_ocr_prompt(grade_level: str, subject: str = "数学") -> str:
+    return f"""你是一位专业的OCR识别专家。请仔细观察这张{grade_level}学生{subject}试卷或作业的照片。
+
+你的唯一任务：识别图片中的所有题目内容。不要做任何诊断或分析。
+
+对于图片中的每道独立题目，提取：
+- question_index: 题号（如"1"、"2"、"三-1"、"第5题"，尽可能保留原题号）
+- question_text: 题目的完整文字内容
+- student_answer: 学生写在答题区域的答案（如果没有手写答案则填null）
+- has_correction_mark: 布尔值。如果图片中有红×、红圈、老师批改√×、红笔订正文字、扣分标记等任何批改痕迹则为true
+- correction_text: 如果有红笔订正或批改文字，提取出来（没有则为null）
+
+重要规则：
+- 每道独立题目一个数组元素。如果图片包含多道题，全部识别出来
+- 批改痕迹判定：红叉(×)、红圈、红笔书写、扣分数字(-2)、批注文字、印章
+- has_correction_mark宁可漏判(false)也不要误判(true)——只有看到明确批改痕迹才标true
+- 文字识别要完整准确，包括标点符号、数学符号、单位
+
+只返回纯JSON数组（不要markdown代码块）：
+[{{"question_index": "1", "question_text": "...", "student_answer": "...", "has_correction_mark": true/false, "correction_text": null/ "..."}}]"""

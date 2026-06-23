@@ -84,9 +84,16 @@ def diagnose_mistake(problem: str, wrong_answer: str, grade_level: str,
 def generate_variants(knowledge_point: str, error_type: str, error_analysis: str,
                       grade_level: str, curriculum: str = "人教版",
                       difficulty: str = "same", count: int = 3,
-                      include_original: bool = False) -> list[dict]:
-    prompt = variant_gen_prompt(knowledge_point, error_type, error_analysis,
-                                grade_level, curriculum, difficulty, count, include_original)
+                      include_original: bool = False,
+                      few_shot_examples: list[dict] = None) -> list[dict]:
+    if few_shot_examples:
+        from prompts import variant_gen_prompt_with_examples
+        prompt = variant_gen_prompt_with_examples(knowledge_point, error_type, error_analysis,
+                                                   grade_level, curriculum, difficulty, count,
+                                                   few_shot_examples)
+    else:
+        prompt = variant_gen_prompt(knowledge_point, error_type, error_analysis,
+                                    grade_level, curriculum, difficulty, count, include_original)
     for attempt in range(3):
         try:
             response = call_llm(SYSTEM_PROMPTS["variant_gen"], prompt)
@@ -163,3 +170,35 @@ def ocr_and_diagnose(image_path: str, grade_level: str,
         except Exception as e:
             if attempt == 2:
                 raise RuntimeError(f"OCR诊断失败（重试3次后）: {e}")
+
+
+def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "image/jpeg",
+                        subject: str = "数学") -> list[dict]:
+    """Pure OCR extraction from image bytes. Returns list of question objects.
+    No diagnosis - just text extraction and segmentation."""
+    from prompts import pure_ocr_prompt
+    client = _get_client()
+    img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    prompt_text = pure_ocr_prompt(grade_level, subject)
+
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                max_tokens=2048,
+                temperature=0.1,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}},
+                        {"type": "text", "text": prompt_text},
+                    ]
+                }],
+            )
+            result = _parse_json(response.choices[0].message.content)
+            if not isinstance(result, list):
+                raise ValueError("Expected JSON array of questions")
+            return result
+        except Exception as e:
+            if attempt == 2:
+                raise RuntimeError(f"OCR识别失败（重试3次后）: {e}")
