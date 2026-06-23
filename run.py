@@ -1,5 +1,6 @@
 """错题Pro - FastAPI Web应用"""
 import os, sys, json, hashlib
+from urllib.parse import quote, unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -53,6 +54,15 @@ def _ensure():
 
 _ensure()  # 启动时初始化
 
+GRADE_OPTIONS = [
+    ("grade_1", "小一"), ("grade_2", "小二"), ("grade_3", "小三"),
+    ("grade_4", "小四"), ("grade_5", "小五"), ("grade_6", "小六"),
+    ("grade_7", "初一"), ("grade_8", "初二"), ("grade_9", "初三"),
+    ("grade_10", "高一"), ("grade_11", "高二"), ("grade_12", "高三"),
+]
+GRADE_LABELS = dict(GRADE_OPTIONS)
+SUBJECT_NAMES = {"math": "数学", "english": "英语", "chinese": "语文"}
+
 import random, string as _string
 def _sid(): return ''.join(random.choices(_string.ascii_letters+_string.digits, k=32))
 
@@ -73,9 +83,10 @@ _LOGIN_PAGE = r"""<div class="login-page">
   <div class="login-logo">
     <div class="login-icon">
       <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="72" height="72" rx="20" fill="url(#lgg)"/>
-        <defs><linearGradient id="lgg" x1="0" y1="0" x2="72" y2="72"><stop offset="0%" stop-color="#5B7FFF"/><stop offset="100%" stop-color="#8BABFF"/></linearGradient></defs>
-        <path d="M24 38 L32 50 L50 26" stroke="#FFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <rect width="72" height="72" rx="20" fill="#3B82F6"/>
+        <path d="M22 22 L50 50" stroke="#FFF" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M50 22 L22 50" stroke="#FFF" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M44 14 L56 14 L56 26" stroke="#FFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
       </svg>
     </div>
     <div class="login-brand">错题<span class="login-brand-accent">Pro</span></div>
@@ -133,17 +144,24 @@ function showErr(msg){var el=document.getElementById('loginError');el.textConten
 </script>"""
 
 _NAV_ICONS = {
-    "home":     {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 10L12 3l9 7v9a2 2 0 01-2 2H5a2 2 0 01-2-2v-9z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21V12h6v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 10L12 3l9 7v9a2 2 0 01-2 2H5a2 2 0 01-2-2v-9z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21V12h6v9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
-    "input":    {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
-    "map":      {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>'},
-    "report":   {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 20h16M6 16V10M10 16V6M14 16V8M18 16V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 20h16M6 16V10M10 16V6M14 16V8M18 16V4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
-    "review":   {'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h12M4 18h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>', 'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h12M4 18h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'},
+    "notebook": {
+        'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7h8M8 11h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+        'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7h8M8 11h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+    },
+    "exam_points": {
+        'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="1.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+        'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+    },
+    "profile": {
+        'on': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M4 22c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+        'off': r'<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M4 22c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+    },
 }
 
 def _nav_bar(active=""):
     def icon(key, active_cond):
         return _NAV_ICONS[key]['on'] if active_cond else _NAV_ICONS[key]['off']
-    return f"""<nav class="bn"><a href="/home" class="{'on' if active=='home' else ''}">{icon('home', active=='home')}<span>首页</span></a><a href="/mistake/new" class="{'on' if active=='input' else ''}">{icon('input', active=='input')}<span>录入</span></a><a href="/map" class="{'on' if active=='map' else ''}">{icon('map', active=='map')}<span>版图</span></a><a href="/report" class="{'on' if active=='report' else ''}">{icon('report', active=='report')}<span>报告</span></a></nav>"""
+    return f"""<nav class="bn"><a href="/home" class="{'on' if active=='notebook' else ''}">{icon('notebook', active=='notebook')}<span>错题本</span></a><a href="/exam-points" class="{'on' if active=='exam_points' else ''}">{icon('exam_points', active=='exam_points')}<span>考点通</span></a><a href="/profile" class="{'on' if active=='profile' else ''}">{icon('profile', active=='profile')}<span>我的</span></a></nav>"""
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -161,54 +179,11 @@ async def login_post(request: Request):
     except: pass
     sid=_sid(); _sessions[sid]=n; resp=RedirectResponse("/home",302); resp.set_cookie("sid",sid); return resp
 
-_REG_CSS = """<style>.cascade-row{display:flex;gap:8px;margin-bottom:8px}.cascade-row select{flex:1;height:46px;background:var(--c);border:none;border-radius:11px;padding:0 12px;font-size:14px;color:var(--t);outline:none;font-family:inherit;appearance:auto}</style>"""
-_REGION = json.dumps({
-    "广东": {"广州":["天河区","越秀区","海珠区","白云区","番禺区","黄埔区","南沙区","花都区","增城区","从化区"],"深圳":["南山区","福田区","罗湖区","宝安区","龙岗区","龙华区","光明区","坪山区","盐田区","大鹏新区"],"东莞":["莞城区","南城区","东城区","万江区"],"佛山":["禅城区","南海区","顺德区","三水区","高明区"],"珠海":["香洲区","斗门区","金湾区"]},
-    "北京": {"北京":["东城区","西城区","朝阳区","海淀区","丰台区","石景山区","通州区","大兴区","昌平区","顺义区"]},
-    "上海": {"上海":["黄浦区","徐汇区","长宁区","静安区","普陀区","虹口区","杨浦区","浦东新区","闵行区","宝山区"]},
-    "浙江": {"杭州":["上城区","拱墅区","西湖区","滨江区","萧山区","余杭区","临平区"],"宁波":["海曙区","江北区","鄞州区","北仑区","镇海区"]},
-    "江苏": {"南京":["玄武区","秦淮区","建邺区","鼓楼区","栖霞区","雨花台区","江宁区","浦口区"],"苏州":["姑苏区","虎丘区","吴中区","相城区","吴江区","工业园区"]},
-    "四川": {"成都":["锦江区","青羊区","金牛区","武侯区","成华区","龙泉驿区","青白江区","新都区","双流区","郫都区","高新区","天府新区"]},
-    "湖北": {"武汉":["江岸区","江汉区","硚口区","汉阳区","武昌区","洪山区","青山区","东西湖区","江夏区","黄陂区"]},
-    "湖南": {"长沙":["芙蓉区","天心区","岳麓区","开福区","雨花区","望城区","长沙县"]},
-    "山东": {"济南":["历下区","市中区","槐荫区","天桥区","历城区","长清区","章丘区"],"青岛":["市南区","市北区","黄岛区","崂山区","李沧区","城阳区","即墨区"]},
-    "福建": {"福州":["鼓楼区","台江区","仓山区","马尾区","晋安区","长乐区"],"厦门":["思明区","湖里区","集美区","海沧区","同安区","翔安区"]},
-    "河南": {"郑州":["中原区","二七区","管城区","金水区","上街区","惠济区","郑东新区"]},
-    "河北": {"石家庄":["长安区","桥西区","新华区","井陉矿区","裕华区","藁城区","鹿泉区","栾城区"]},
-    "天津": {"天津":["和平区","河东区","河西区","南开区","河北区","红桥区","东丽区","西青区","北辰区","武清区","宝坻区","滨海新区"]},
-    "重庆": {"重庆":["渝中区","江北区","南岸区","沙坪坝区","九龙坡区","大渡口区","北碚区","渝北区","巴南区"]},
-})
-
-_REG_PAGE = """<div class="pg"><div class="nb"><a href="/login">← 返回</a><span class="tt">创建账号</span></div><form method="post" action="/register">
+_REG_PAGE = """<div class="pg"><div class="nb"><a href="/login">← 返回</a></div><div style="text-align:center;font-size:19px;font-weight:700;color:var(--t);margin-bottom:24px;">创建账号</div><form method="post" action="/register">
 <div class="label">昵称</div><input class="inp" name="name" placeholder="输入昵称" required>
 <div class="label">密码</div><input class="inp" name="password" type="password" placeholder="至少3位" required minlength="3">
 <input class="inp" name="password2" type="password" placeholder="确认密码" required>
-<div class="label">所在地区（省-市-区）</div>
-<div class="cascade-row">
-<select class="inp" id="sel-province" onchange="loadCities()"><option value="">请选择省份</option></select>
-<select class="inp" id="sel-city" onchange="loadDistricts()"><option value="">请选择城市</option></select>
-<select class="inp" id="sel-district" name="district"><option value="">请选择区县</option></select>
-<input type="hidden" name="province" id="hf-province"><input type="hidden" name="city" id="hf-city">
-</div>
-<div class="label">在读年级</div><select class="inp" name="grade" style="appearance:auto">
-<option value="grade_1">小一</option><option value="grade_2">小二</option><option value="grade_3">小三</option><option value="grade_4" selected>小四</option><option value="grade_5">小五</option><option value="grade_6">小六</option><option value="grade_7">初一</option><option value="grade_8">初二</option><option value="grade_9">初三</option><option value="grade_10">高一</option><option value="grade_11">高二</option><option value="grade_12">高三</option></select>
-<div class="label">科目与教材版本</div>
-<div id="subject-forms"></div>
-<div class="label">选择科目</div>
-<div class="chip-row"><label class="chip" onclick="toggleSubj('math',this,'人教版')"><input type="checkbox" name="subjects" value="math" checked> 数学 · 人教版</label><label class="chip" onclick="toggleSubj('english',this,'人教版')"><input type="checkbox" name="subjects" value="english"> 英语 · 人教版</label><label class="chip" onclick="toggleSubj('chinese',this,'人教版')"><input type="checkbox" name="subjects" value="chinese"> 语文 · 统编版</label></div>
-<button class="btn btn-p" onclick="prepareSubmit()">确认，开始使用</button></form></div>
-""" + _REG_CSS + """
-<script>
-var regionData = """ + _REGION + """;
-var selPro=document.getElementById('sel-province'),selCity=document.getElementById('sel-city'),selDist=document.getElementById('sel-district');
-var hfPro=document.getElementById('hf-province'),hfCity=document.getElementById('hf-city');
-var provinces=Object.keys(regionData).sort();
-provinces.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;selPro.appendChild(o)});
-function loadCities(){selCity.innerHTML='<option value="">请选择城市</option>';selDist.innerHTML='<option value="">请选择区县</option>';var p=selPro.value;hfPro.value=p;if(!p||!regionData[p])return;Object.keys(regionData[p]).sort().forEach(function(c){var o=document.createElement('option');o.value=c;o.textContent=c;selCity.appendChild(o)})}
-function loadDistricts(){selDist.innerHTML='<option value="">请选择区县</option>';var p=selPro.value,c=selCity.value;hfCity.value=c;if(!p||!c||!regionData[p]||!regionData[p][c])return;regionData[p][c].forEach(function(d){var o=document.createElement('option');o.value=d;o.textContent=d;selDist.appendChild(o)})}
-function toggleSubj(s,el,defVer){el.classList.toggle('sel');var cb=el.querySelector('input');cb.checked=el.classList.contains('sel')}
-function prepareSubmit(){hfPro.value=selPro.value;hfCity.value=selCity.value}
-</script>"""
+<button class="btn btn-p" style="margin-top:12px;">确认，开始使用</button></form></div>"""
 
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
@@ -220,7 +195,7 @@ async def register_post(request: Request):
     if not n or len(p1)<3: return RedirectResponse("/register?error=昵称必填，密码至少3位",302)
     if p1!=p2: return RedirectResponse("/register?error=两次密码不一致",302)
     s=os.urandom(16); h=hashlib.pbkdf2_hmac("sha256",p1.encode(),s,200000)
-    _users[n]={"student_name":n,"password_hash":s.hex()+":"+h.hex(),"province":form.get("province",""),"city":form.get("city",""),"district":form.get("district",""),"grade_level":form.get("grade","grade_4"),"curriculum_version":form.get("curriculum","人教版"),"subjects":form.getlist("subjects") or ["math"],"version":"basic"}
+    _users[n]={"student_name":n,"password_hash":s.hex()+":"+h.hex(),"province":"","city":"","district":"","grade_level":"grade_4","curriculum_version":"人教版","subjects":["math"],"version":"basic"}
     try:
         d=os.path.join(_DATA_ROOT,"user_data",n); os.makedirs(d,exist_ok=True)
         json.dump(_users[n],open(os.path.join(d,"profile.json"),"w"),ensure_ascii=False,indent=2)
@@ -248,11 +223,46 @@ async def home(request: Request):
     redir, ctx = _auth(request)
     if redir: return redir
     n = ctx["student"]
-    body = f"""<div class="pg"><div style="display:flex;justify-content:flex-end;padding:12px 0;"><a href="/logout" style="font-size:12px;color:var(--tw);">退出</a></div>
-    <div style="font-size:26px;font-weight:700;color:var(--t);">你好，{n} 👋</div>
-    <div style="font-size:13px;color:var(--ts);margin-bottom:20px;">开始学习吧</div>
-    <div class="gr"><a href="/mistake/new" class="gi" style="background:rgba(91,127,255,.04);"><div class="ic">📝</div><div class="lb">录入错题</div></a><a href="/map" class="gi" style="background:rgba(255,91,107,.04);"><div class="ic">🗺️</div><div class="lb">知识版图</div></a><a href="/report" class="gi" style="background:rgba(91,127,255,.02);"><div class="ic">📊</div><div class="lb">学习报告</div></a><a href="/mistakes" class="gi" style="background:rgba(255,91,107,.02);"><div class="ic">📋</div><div class="lb">错题回顾</div></a></div></div>"""
-    return HTMLResponse(_pg(body, "首页", "home"))
+    pf = ctx.get("profile", {})
+    subjects = pf.get("subjects", ["math"])
+    grade = pf.get("grade_level", "grade_4")
+    grade_label = GRADE_LABELS.get(grade, "小四")
+
+    conn = ctx.get("conn")
+    subject_cards = ""
+    for subj in subjects:
+        count = 0
+        if conn:
+            from db import list_mistakes
+            ms = list_mistakes(conn, subject=subj, limit=1000)
+            count = len(ms)
+        subject_cards += f'''<a href="/mistakes?subject={subj}" class="subject-card">
+          <span class="subject-name">{SUBJECT_NAMES.get(subj, subj)}</span>
+          <span class="subject-count">{count} 道错题</span>
+        </a>'''
+
+    grade_options = ''.join(f'<option value="{k}" {"selected" if k==grade else ""}>{v}</option>' for k,v in GRADE_OPTIONS)
+
+    body = f"""<div class="pg">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+      <select class="grade-select" onchange="updateGrade(this.value)">{grade_options}</select>
+      <span style="font-size:14px;color:var(--ts);margin-left:auto;">{n}</span>
+    </div>
+    <a href="/mistake/new" class="record-card">
+      <div class="record-icon">📝</div>
+      <div class="record-label">录错题</div>
+      <div class="record-desc">拍照或手动录入错题，AI 智能诊断</div>
+    </a>
+    <div class="section-title">我的错题本</div>
+    <div class="subject-grid">{subject_cards or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无科目，先录入错题吧</div>"}</div>
+    </div>
+    <script>
+    async function updateGrade(v){{
+      var d=new FormData();d.append('grade',v);
+      await fetch('/update-grade',{{method:'POST',body:d}});
+    }}
+    </script>"""
+    return HTMLResponse(_pg(body, "错题本", "notebook"))
 
 # ─── 录入 ──────────────────────────────────────
 
@@ -511,6 +521,158 @@ async def mistakes_list(request: Request):
     body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">错题回顾</span></div>{mh or "<div>暂无数据</div>"}</div>'
     return HTMLResponse(_pg(body,"回顾"))
 
+# ─── 考点通 ────────────────────────────────────
+
+@app.get("/exam-points", response_class=HTMLResponse)
+async def exam_points_page(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    items = ""
+    if conn:
+        from db import get_all_masteries
+        subjects = ctx.get("profile", {}).get("subjects", ["math"])
+        for subj in subjects:
+            ms = get_all_masteries(conn, subj)
+            if ms:
+                items += f'<div class="section-title" style="margin-top:8px;">{SUBJECT_NAMES.get(subj, subj)}</div>'
+                for m in ms:
+                    sc = m["mastery_score"]
+                    c = "#3D5FD9" if sc >= 0.7 else ("#D9821A" if sc >= 0.4 else "#E04050")
+                    tc = "tag-m" if m["pool_status"] == "dormant" else ("tag-w" if m["pool_status"] == "active" else "tag-i")
+                    st = "熟练" if m["pool_status"] == "dormant" else ("攻克中" if m["pool_status"] == "active" else "需加强")
+                    kp_encoded = quote(m["knowledge_point"])
+                    items += f'''<a href="/exam-point/{kp_encoded}" class="kp-card">
+                      <span class="kp-name">{m["knowledge_point"]}</span>
+                      <span class="kp-score" style="color:{c};">{int(sc*100)}%</span>
+                      <span class="tag {tc}">{st}</span>
+                    </a>'''
+    body = f'<div class="pg"><div class="section-title" style="font-size:20px;font-weight:700;color:var(--t);margin-bottom:16px;">考点通</div>{items or "<div style=\'color:var(--ts);font-size:13px;\'>暂无考点数据，先录入错题吧</div>"}</div>'
+    return HTMLResponse(_pg(body, "考点通", "exam_points"))
+
+@app.get("/exam-point/{kp}", response_class=HTMLResponse)
+async def exam_point_detail(request: Request, kp: str):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    kp = unquote(kp)
+    conn = ctx.get("conn")
+    mistakes_html = ""
+    if conn:
+        from db import list_mistakes
+        ms = list_mistakes(conn, knowledge_point=kp, limit=50)
+        for m in ms:
+            em = {"knowledge_gap": "知识盲区", "thinking_error": "思路错误", "careless": "粗心"}
+            ec = "tag-kg" if m['error_type'] == 'knowledge_gap' else ("tag-te" if m['error_type'] == 'thinking_error' else "tag-cl")
+            mistakes_html += f'''<div class="crd">
+              <span class="tag {ec}">{em.get(m["error_type"], "")}</span>
+              <div style="font-size:14px;color:var(--t);margin-top:8px;">{m["original_problem"][:100]}</div>
+            </div>'''
+    body = f"""<div class="pg">
+    <div class="nb"><a href="/exam-points">← 返回</a><span class="tt">{kp}</span></div>
+    {mistakes_html or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无记录</div>"}
+    <div style="display:flex;gap:12px;margin-top:16px;">
+      <button class="btn btn-p" style="flex:1;" onclick="generateVariants()">举一反三</button>
+      <button class="btn" style="flex:1;background:var(--c);color:var(--t);" onclick="window.print()">打印</button>
+    </div>
+    <div id="variants-result"></div>
+    </div>
+    <script>
+    var currentKp = '{kp}';
+    async function generateVariants() {{
+      var r = document.getElementById('variants-result');
+      r.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner"></div><div style="color:var(--ts)">AI 正在生成变式题...</div></div>';
+      var d = new FormData(); d.append('knowledge_point', currentKp);
+      try {{
+        var resp = await fetch('/generate-variants', {{method:'POST', body:d}});
+        var j = await resp.json();
+        if (j.error) {{ r.innerHTML = '<div class="err-msg">'+escHtml(j.error)+'</div>'; return; }}
+        var html = '';
+        j.variants.forEach(function(v, i) {{
+          html += '<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);">变式题 '+(i+1)+'</div><div style="font-size:14px;color:var(--t);line-height:1.8;margin:8px 0;">'+escHtml(v.problem)+'</div><div style="font-size:12px;color:var(--tw);">答案：'+escHtml(v.correct_answer)+'</div></div>';
+        }});
+        r.innerHTML = html;
+      }} catch(e) {{ r.innerHTML = '<div class="err-msg">生成失败，请重试</div>'; }}
+    }}
+    function escHtml(s) {{ var d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }}
+    </script>"""
+    return HTMLResponse(_pg(body, kp))
+
+@app.post("/generate-variants")
+async def generate_variants_post(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    kp = form.get("knowledge_point", "")
+    if not kp: return JSONResponse({"error": "知识点不能为空"}, 400)
+    pf = ctx.get("profile", {})
+    grade = pf.get("grade_level", "grade_4")
+    curriculum = pf.get("curriculum_version", "人教版")
+    from ai import generate_variants
+    variants = generate_variants(kp, "thinking_error", "", grade, curriculum, "same", 3)
+    return JSONResponse({"variants": variants})
+
+# ─── 我的 ──────────────────────────────────────
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    n = ctx["student"]
+    pf = ctx.get("profile", {})
+    grade = GRADE_LABELS.get(pf.get("grade_level", "grade_4"), "小四")
+    subjects = pf.get("subjects", ["math"])
+    subj_labels = [SUBJECT_NAMES.get(s, s) for s in subjects]
+    body = f"""<div class="pg">
+    <div class="profile-header">
+      <div class="avatar">{n[0].upper()}</div>
+      <div class="profile-name">{n}</div>
+      <div class="profile-grade">{grade}</div>
+    </div>
+    <div class="crd">
+      <div class="label">学习科目</div>
+      <div class="chip-row">{''.join(f'<span class="chip sel">{s}</span>' for s in subj_labels)}</div>
+    </div>
+    <div class="crd">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;color:var(--t);">学习记录</span>
+        <span style="font-size:12px;color:var(--tw);">开发中</span>
+      </div>
+    </div>
+    <div class="crd">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;color:var(--t);">站内消息</span>
+        <span style="font-size:12px;color:var(--tw);">开发中</span>
+      </div>
+    </div>
+    <div class="crd">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;color:var(--t);">设置</span>
+        <span style="font-size:12px;color:var(--tw);">开发中</span>
+      </div>
+    </div>
+    <a href="/logout" class="btn" style="display:block;width:100%;height:50px;background:var(--rb);color:var(--r);border:none;border-radius:13px;font-size:15px;font-weight:600;text-align:center;line-height:50px;text-decoration:none;margin-top:16px;">退出登录</a>
+    </div>"""
+    return HTMLResponse(_pg(body, "我的", "profile"))
+
+# ─── 辅助 ──────────────────────────────────────
+
+@app.post("/update-grade")
+async def update_grade(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    grade = form.get("grade", "")
+    valid_grades = [k for k, v in GRADE_OPTIONS]
+    if grade in valid_grades:
+        n = ctx["student"]
+        _users[n]["grade_level"] = grade
+        try:
+            d = os.path.join(_DATA_ROOT, "user_data", n)
+            pf = os.path.join(d, "profile.json")
+            json.dump(_users[n], open(pf, "w"), ensure_ascii=False, indent=2)
+        except: pass
+    return JSONResponse({"ok": True})
+
 # ─── CSS ──────────────────────────────────────
 
 CSS = """<style>
@@ -546,7 +708,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .label{font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:1.5px;margin:16px 0 6px}
 .spinner{width:40px;height:40px;border:3px solid var(--br);border-top-color:var(--b);border-radius:50%;animation:s .8s linear infinite;margin:0 auto 12px}@keyframes s{to{transform:rotate(360deg)}}
 .chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.chip{padding:8px 14px;background:var(--c);border-radius:8px;font-size:13px;color:var(--t);cursor:pointer;border:2px solid transparent}.chip.sel{background:var(--bb);border-color:var(--b);color:var(--b);font-weight:600}</style>"""
+.chip{padding:8px 14px;background:var(--c);border-radius:8px;font-size:13px;color:var(--t);cursor:pointer;border:2px solid transparent}.chip.sel{background:var(--bb);border-color:var(--b);color:var(--b);font-weight:600}
+.grade-select{font-size:13px;background:var(--w);border:1px solid var(--br);border-radius:8px;padding:4px 8px;color:var(--t);font-family:inherit;outline:none}
+.grade-select:focus{border-color:var(--b)}
+.record-card{display:block;background:linear-gradient(135deg,var(--bb),rgba(91,127,255,.08));border:1.5px solid rgba(91,127,255,.12);border-radius:18px;padding:24px;text-align:center;text-decoration:none;margin-bottom:24px;transition:transform .15s}
+.record-card:active{transform:scale(.98)}
+.record-icon{font-size:36px;margin-bottom:8px}
+.record-label{font-size:18px;font-weight:700;color:var(--b);margin-bottom:4px}
+.record-desc{font-size:12px;color:var(--ts)}
+.section-title{font-size:14px;font-weight:700;color:var(--t);margin-bottom:12px}
+.subject-grid{display:flex;flex-direction:column;gap:8px}
+.subject-card{display:flex;justify-content:space-between;align-items:center;background:var(--w);border-radius:14px;padding:16px;text-decoration:none;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.subject-card:active{background:var(--c)}
+.subject-name{font-size:15px;font-weight:600;color:var(--t)}
+.subject-count{font-size:12px;color:var(--tw);background:var(--c);padding:4px 10px;border-radius:99px}
+.profile-header{text-align:center;padding:24px 0}
+.avatar{width:64px;height:64px;background:var(--b);color:#FFF;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin:0 auto 12px}
+.profile-name{font-size:20px;font-weight:700;color:var(--t)}
+.profile-grade{font-size:13px;color:var(--ts);margin-top:4px}
+.kp-card{display:flex;align-items:center;gap:8px;background:var(--w);border-radius:14px;padding:14px 16px;margin-bottom:8px;text-decoration:none;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.kp-name{flex:1;font-size:14px;font-weight:600;color:var(--t)}
+.kp-score{font-size:14px;font-weight:700}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
