@@ -293,9 +293,9 @@ async def home(request: Request):
 
 _JS_OCR = r"""
 var vs=[],idx=0,cc=0,_ocrQuestions=[];
-async function ocrUpload(){
-  var f=document.getElementById('photo').files[0];
-  if(!f) return alert('请先选择图片');
+async function ocrUpload(inputEl){
+  var f=inputEl.files[0];
+  if(!f) return;
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
   document.getElementById('ldMsg').textContent='AI正在识别图片中的题目...';
@@ -424,23 +424,31 @@ function esc(s){var d=document.createElement('div');d.textContent=s||'';return d
 async def mistake_page(request: Request):
     redir, ctx = _auth(request)
     if redir: return redir
-    html = r"""<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">录入错题</span></div>
+    html = r"""<div class="pg"><div class="nb"><a href="/home">← 返回</a></div>
+    <div class="mistake-title">录入错题</div>
     <div id="f">
-    <div class="label">选择学科</div>
+    <div class="section-label">一、选择学科</div>
     <div class="chip-row" style="margin-bottom:16px;">
       <label class="chip sel" onclick="setSubj('math',this)"><span class="dot"></span> 数学</label>
       <label class="chip" onclick="setSubj('english',this)"><span class="dot"></span> 英语</label>
       <label class="chip" onclick="setSubj('chinese',this)"><span class="dot"></span> 语文</label>
     </div>
     <input type="hidden" id="curSubject" value="math">
-    <div class="label">方式一：拍照识别（推荐）</div>
-    <div class="crd" style="text-align:center;padding:24px;border:2px dashed var(--br);">
-      <input type="file" id="photo" accept="image/*" capture="environment" style="margin-bottom:12px;font-size:14px;width:100%;">
-      <button class="btn btn-p" onclick="ocrUpload()">📷 拍照识别</button>
+    <div class="section-label" style="margin-top:8px;">二、录入方式</div>
+    <div class="sub-label">方式一：拍照识别（推荐）</div>
+    <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none;" onchange="ocrUpload(this)">
+    <input type="file" id="photoGallery" accept="image/*" style="display:none;" onchange="ocrUpload(this)">
+    <div class="photo-btns">
+      <button type="button" class="photo-btn photo-btn-camera" onclick="document.getElementById('photoCamera').click()">
+        <span class="photo-btn-icon">📷</span>拍照识别
+      </button>
+      <button type="button" class="photo-btn photo-btn-gallery" onclick="document.getElementById('photoGallery').click()">
+        <span class="photo-btn-icon">🖼️</span>选择文件
+      </button>
     </div>
-    <div class="label" style="margin-top:20px;">方式二：手动输入</div>
+    <div class="sub-label" style="margin-top:20px;">方式二：手动输入</div>
     <textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
-    <div class="label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
+    <div class="sub-label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
     <button class="btn btn-p" onclick="goM()">提交，开始AI诊断</button></div>
     <div id="ld" style="display:none;text-align:center;padding:40px;"><div class="spinner"></div><div id="ldMsg" style="color:var(--ts);">AI正在识别题目...</div></div>
     <div id="sel" style="display:none;"></div>
@@ -852,7 +860,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""

@@ -26,6 +26,28 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
+def _get_vision_client() -> OpenAI:
+    """Get a client for vision/OCR calls.
+    DeepSeek官方API不支持图片输入，需使用SiliconFlow等第三方Vision API。
+    注册 https://cloud.siliconflow.cn 获取免费API Key（新用户送10M tokens）。
+    """
+    api_key = os.environ.get("VISION_API_KEY")
+    if not api_key or "your-siliconflow-key" in api_key:
+        raise RuntimeError(
+            "OCR识别需要Vision API Key。DeepSeek官方不支持图片识别，请：\n"
+            "1. 访问 https://cloud.siliconflow.cn 注册账号\n"
+            "2. 获取API Key\n"
+            "3. 在 .env 中设置 VISION_API_KEY=你的key\n"
+            "（新用户免费送10M tokens，够用很久）"
+        )
+    base_url = os.environ.get("VISION_BASE_URL", "https://api.siliconflow.cn/v1")
+    return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def _get_vision_model() -> str:
+    return os.environ.get("VISION_MODEL", "deepseek-ai/deepseek-vl2")
+
+
 def call_llm(system_prompt: str, user_prompt: str, model: str = "deepseek-chat") -> str:
     """调用 DeepSeek API，返回文本响应"""
     client = _get_client()
@@ -145,8 +167,9 @@ def check_answer(problem: str, correct_answer: str, student_answer: str,
 
 def ocr_and_diagnose(image_path: str, grade_level: str,
                      curriculum: str = "人教版") -> dict:
-    """OCR + 诊断（使用DeepSeek Vision，如不支持则退回纯文本）"""
-    client = _get_client()
+    """OCR + 诊断（使用Vision模型）"""
+    client = _get_vision_client()
+    model = _get_vision_model()
 
     with open(image_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode("utf-8")
@@ -161,7 +184,7 @@ def ocr_and_diagnose(image_path: str, grade_level: str,
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model="deepseek-chat",
+                model=model,
                 max_tokens=2048,
                 temperature=0.3,
                 messages=[{
@@ -190,14 +213,15 @@ def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "
     """Pure OCR extraction from image bytes. Returns list of question objects.
     No diagnosis - just text extraction and segmentation."""
     from prompts import pure_ocr_prompt
-    client = _get_client()
+    client = _get_vision_client()
+    model = _get_vision_model()
     img_b64 = base64.b64encode(image_bytes).decode("utf-8")
     prompt_text = pure_ocr_prompt(grade_level, subject)
 
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model="deepseek-chat",
+                model=model,
                 max_tokens=2048,
                 temperature=0.1,
                 messages=[{
