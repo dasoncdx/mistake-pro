@@ -195,22 +195,20 @@ def ocr_diagnosis_prompt(grade_level: str, curriculum: str = "人教版") -> str
 # ─── Pure OCR Prompt (v1.2: split OCR from diagnosis) ─────────
 
 def pure_ocr_prompt(grade_level: str, subject: str = "数学") -> str:
+    subj_note = ""
+    if subject == "英语":
+        subj_note = "\n英语题注意：完形填空/语法填空的篇章文字要完整抄录到每道小题的question_text中作为上下文。"
     return f"""你是一位专业的OCR识别专家。请仔细观察这张{grade_level}学生{subject}试卷或作业的照片。
 
-你的唯一任务：识别图片中的所有题目内容。不要做任何诊断或分析。
+你的任务：识别图片中所有题目，按题号拆分为最小单元，只输出干净的题目原文（不要答案、不要批改痕迹）。{subj_note}
+每道题返回：
+- question_index: 题号（原样保留，如"1"、"2"、"三-1"）
+- question_text: 题目的完整文字内容（包括选项和篇章上下文）。注意：只输出题目本身，不要包含学生手写答案、老师批改痕迹、红笔字、扣分标记等任何非题目内容
 
-对于图片中的每道独立题目，提取：
-- question_index: 题号（如"1"、"2"、"三-1"、"第5题"，尽可能保留原题号）
-- question_text: 题目的完整文字内容
-- student_answer: 学生写在答题区域的答案（如果没有手写答案则填null）
-- has_correction_mark: 布尔值。如果图片中有红×、红圈、老师批改√×、红笔订正文字、扣分标记等任何批改痕迹则为true
-- correction_text: 如果有红笔订正或批改文字，提取出来（没有则为null）
-
-重要规则：
-- 每道独立题目一个数组元素。如果图片包含多道题，全部识别出来
-- 批改痕迹判定：红叉(×)、红圈、红笔书写、扣分数字(-2)、批注文字、印章
-- has_correction_mark宁可漏判(false)也不要误判(true)——只有看到明确批改痕迹才标true
-- 文字识别要完整准确，包括标点符号、数学符号、单位
+关键要求：
+- 每一道有独立题号的题目都是独立数组元素，全部识别出来
+- 文字识别完整准确，包括标点符号和数学符号
+- 题目文字中不要混入任何答案或批改信息
 
 只返回纯JSON数组（不要markdown代码块）：
-[{{"question_index": "1", "question_text": "...", "student_answer": "...", "has_correction_mark": true/false, "correction_text": null/ "..."}}]"""
+[{{"question_index": "1", "question_text": "题目原文..."}}]"""

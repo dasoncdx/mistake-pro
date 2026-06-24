@@ -208,6 +208,23 @@ def ocr_and_diagnose(image_path: str, grade_level: str,
                 raise RuntimeError(f"OCR诊断失败（重试3次后）: {e}")
 
 
+def _compress_image(image_bytes: bytes, max_size: int = 1500, quality: int = 75) -> tuple[bytes, str]:
+    """Compress and resize image for vision API. Returns (compressed_bytes, mime_type)."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(image_bytes))
+        fmt = img.format or "JPEG"
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size))
+        buf = io.BytesIO()
+        img.save(buf, format=fmt, quality=quality)
+        mime = f"image/{fmt.lower()}"
+        return buf.getvalue(), mime
+    except Exception:
+        return image_bytes, "image/jpeg"
+
+
 def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "image/jpeg",
                         subject: str = "数学") -> list[dict]:
     """Pure OCR extraction from image bytes. Returns list of question objects.
@@ -215,14 +232,15 @@ def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "
     from prompts import pure_ocr_prompt
     client = _get_vision_client()
     model = _get_vision_model()
-    img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    compressed_bytes, mime_type = _compress_image(image_bytes)
+    img_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
     prompt_text = pure_ocr_prompt(grade_level, subject)
 
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=2048,
+                max_tokens=4096,
                 temperature=0.1,
                 messages=[{
                     "role": "user",

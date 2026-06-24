@@ -292,7 +292,7 @@ async def home(request: Request):
 # ─── 录入 ──────────────────────────────────────
 
 _JS_OCR = r"""
-var vs=[],idx=0,cc=0,_ocrQuestions=[];
+var _ocrQuestions=[];
 async function ocrUpload(inputEl){
   var f=inputEl.files[0];
   if(!f) return;
@@ -311,32 +311,20 @@ async function ocrUpload(inputEl){
 function renderSelectionUI(questions){
   if(!questions||questions.length===0){alert('未识别到题目，请重新拍照');location.reload();return}
   var sel=document.getElementById('sel');
-  var html='<div class="sel-header"><div class="sel-title">识别到 '+questions.length+' 道题</div><div style="display:flex;gap:8px;"><button type="button" class="sel-all-btn" onclick="selAllMarked()">全选错题</button><button type="button" class="sel-all-btn" style="border-color:var(--br);" onclick="selAll()">全选所有</button></div></div>';
+  var html='<div class="sel-header"><div class="sel-title">识别到 '+questions.length+' 道题，请选择要保存的题目</div><button type="button" class="sel-all-btn" onclick="selAll()">全选</button></div>';
   html+='<div class="sel-count" id="selCount">已选 0/'+questions.length+' 道</div>';
   questions.forEach(function(q,i){
-    var marked=q.has_correction_mark;
-    var chk=marked?' checked':'';
-    html+='<label class="qcard'+(marked?' qcard-marked':'')+'" id="qcard_'+i+'">';
-    html+='<div class="qcard-left"><input type="checkbox" class="qcheck" id="qchk_'+i+'"'+chk+' onchange="updateSelCount('+questions.length+')"><span class="qcard-idx">'+esc(q.question_index||(i+1))+'</span></div>';
-    html+='<div class="qcard-body"><div class="qcard-text">'+esc(q.question_text||'')+'</div>';
-    if(q.student_answer) html+='<div class="qcard-ans">✏️ '+esc(q.student_answer)+'</div>';
-    if(marked) html+='<span class="qbadge-wrong">批改痕迹</span>';
-    if(q.correction_text) html+='<div class="qcard-corr">批注：'+esc(q.correction_text)+'</div>';
-    html+='</div></label>';
+    html+='<label class="qcard" id="qcard_'+i+'">';
+    html+='<div class="qcard-left"><input type="checkbox" class="qcheck" id="qchk_'+i+'" onchange="updateSelCount('+questions.length+')"><span class="qcard-idx">'+esc(q.question_index||(i+1))+'</span></div>';
+    html+='<div class="qcard-body"><div class="qcard-text">'+esc(q.question_text||'')+'</div></div></label>';
   });
-  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="confirmSelection()">确认选择，开始AI诊断</button>';
+  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="confirmSelection()">确认保存选题</button>';
   sel.innerHTML=html;sel.style.display='block';updateSelCount(questions.length);
 }
 function updateSelCount(total){
   var n=document.querySelectorAll('.qcheck:checked').length;
   document.getElementById('selCount').textContent='已选 '+n+'/'+total+' 道';
-  document.getElementById('selConfirmBtn').textContent='确认选择，开始AI诊断（'+n+'道）';
-}
-function selAllMarked(){
-  document.querySelectorAll('.qcheck').forEach(function(cb,i){
-    cb.checked=document.getElementById('qcard_'+i).classList.contains('qcard-marked');
-  });
-  updateSelCount(document.querySelectorAll('.qcheck').length);
+  document.getElementById('selConfirmBtn').textContent='确认保存选题（'+n+'道）';
 }
 function selAll(){
   document.querySelectorAll('.qcheck').forEach(function(cb){cb.checked=true});
@@ -351,23 +339,14 @@ async function confirmSelection(){
   var selectedQuestions=selectedIndices.map(function(i){return _ocrQuestions[i];});
   document.getElementById('sel').style.display='none';
   document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='AI正在诊断 '+selectedQuestions.length+' 道错题...';
+  document.getElementById('ldMsg').textContent='正在保存 '+selectedQuestions.length+' 道题目...';
   var d=new FormData();d.append('questions',JSON.stringify(selectedQuestions));d.append('subject',document.getElementById('curSubject').value);
   try{
-    var r=await fetch('/mistake/diagnose',{method:'POST',body:d}),j=await r.json();
+    var r=await fetch('/mistake/save',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    if(j.results&&j.results.length>0){
-      var html='<div style="font-size:14px;font-weight:600;color:var(--t);margin:8px 0;">已诊断 '+j.results.length+' 道错题</div>';
-      var et={knowledge_gap:'知识盲区',thinking_error:'思路错误',careless:'粗心'};
-      j.results.forEach(function(res){
-        html+='<div class="crd" style="background:rgba(91,127,255,.03);border:1px solid rgba(91,127,255,.06);margin-top:10px;"><div style="font-size:14px;font-weight:600;color:var(--t);">'+esc(res.knowledge_point)+'</div><div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;"><span class="tag tag-w">'+et[res.error_type]+'</span><span style="font-size:13px;color:var(--ts);">'+esc(res.error_analysis)+'</span></div><div style="font-size:13px;">正确答案：<b>'+esc(res.correct_answer)+'</b></div></div>';
-      });
-      document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
-      vs=[];j.results.forEach(function(res){if(res.variants){res.variants.forEach(function(v){vs.push(v);});}});
-      idx=0;cc=0;
-      if(vs.length>0) nq();
-    }
+    var html='<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">&#x2705;</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:4px;">保存成功</div><div style="font-size:13px;color:var(--ts);">已保存 '+j.count+' 道题目到 '+j.folder+'</div><button class="btn btn-p" style="margin-top:20px;" onclick="location.reload()">继续录入</button></div>';
+    document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
   }catch(e){alert(e);location.reload()}
 }
 async function goM(){
@@ -476,6 +455,33 @@ async def mistake_ocr(request: Request):
     from ai import pure_ocr_from_bytes
     questions = pure_ocr_from_bytes(img_bytes, grade, mime_type, subject)
     return JSONResponse({"questions": questions})
+
+
+@app.post("/mistake/save")
+async def mistake_save(request: Request):
+    """Save selected questions as clean text files organized by subject"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    questions_json = form.get("questions", "[]")
+    questions = json.loads(questions_json)
+    subject = form.get("subject", "math")
+    if not questions:
+        return JSONResponse({"error": "请选择至少一道题"}, 400)
+
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved", subject)
+    os.makedirs(base_dir, exist_ok=True)
+    timestamp = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{timestamp}.txt"
+    filepath = os.path.join(base_dir, filename)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        for i, q in enumerate(questions):
+            idx = q.get("question_index", i + 1)
+            text = q.get("question_text", "").strip()
+            f.write(f"{idx}. {text}\n\n")
+
+    return JSONResponse({"count": len(questions), "folder": f"saved/{subject}/", "file": filename})
 
 
 @app.post("/mistake/diagnose")
