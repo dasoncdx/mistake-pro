@@ -1,6 +1,6 @@
 # 错题Pro — 技术方案文档（TECH DESIGN）
 
-> 版本：v1.3 | 对应PRD：v1.3 | 已部署：https://mistake-pro.zeabur.app
+> 版本：v1.4 | 对应PRD：v1.4 | 已部署：https://mistake-pro.zeabur.app
 
 ---
 
@@ -1217,6 +1217,50 @@ v1.2 路由变更：
 其他改动：
   - /mistake/new（POST）支持 subject 参数（不再硬编码"math"）
   - goM() 手动录入同样传递当前选择的学科
+```
+
+### 8.1.4 v1.4 — 图片处理模式（摒弃OCR文字提取）
+
+```
+新文件：
+  - image_utils.py — flatten_page()文档展平(OpenCV) + erase_handwriting()手写擦除(inpaint)
+  - requirements.txt +opencv-python-headless +numpy
+
+新函数（ai.py）：
+  - analyze_homework() — 单次Vision API调用，返回手写区域+题目区域坐标
+
+新端点：
+  - POST /mistake/process-image — 展平→AI分析→擦除→返回处理图+区域坐标
+  - POST /mistake/save-regions — 从处理图裁剪选中区域→保存图片+SQLite记录
+
+新增依赖：
+  - opencv-python-headless>=4.0.0：Canny边缘检测+透视矫正+inpainting
+  - numpy>=1.24.0：数组运算
+  - FastAPI StaticFiles mount：/static/ 目录服务
+
+前端JS重写（_JS_OCR → 图片处理JS）：
+  - processImage()：上传→调用/mistake/process-image→渲染处理图
+  - renderProcessedUI()：处理图+"+"按钮覆盖层（绝对定位）
+  - placeButtons()：根据区域坐标放置"+"按钮
+  - toggleRegion(idx)：点选/取消区域
+  - saveRegions()：发送选中区域到/mistake/save-regions裁剪保存
+
+CSS新增：
+  - .proc-img-wrap：relative容器
+  - .proc-img：处理图，全宽响应式
+  - .pbtn：28px圆形"+"按钮，绝对定位，z-index:5
+  - .pbtn-sel：选中态绿色+勾号
+
+数据存储：
+  - 裁剪图存 saved/{subject}/crop_{timestamp}_{idx}.jpg
+  - original_problem字段格式：IMAGE:saved/{subject}/crop_xxx.jpg
+  - 错题本页面识别IMAGE:前缀，展示图片而非文字
+
+技术要点：
+  - 总耗时~5-7秒：展平<1s + AI分析3-5s + 擦除<1s
+  - 图像压缩：处理后图片限制2048px长边，JPEG quality=80
+  - 降级策略：AI分析失败返回空regions（不阻塞流程）
+  - Python 3.12运行（Python 3.14无opencv预编译wheel）
 ```
 
 ### 8.2 未来迁移路径

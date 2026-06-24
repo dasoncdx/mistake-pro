@@ -10,6 +10,7 @@ _DATA_ROOT = "/tmp/mistake_pro_data" if os.path.exists("/tmp") and not os.access
 from dotenv import load_dotenv; load_dotenv()
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 # 强制db.py用/tmp写数据
 import db
@@ -17,7 +18,12 @@ db.DB_DIR = os.path.join(_DATA_ROOT, "user_data")
 
 app = FastAPI(title="错题Pro")
 
-# ─── 全局错误处理 ──────────────────────────────
+# 静态文件服务
+static_dir = os.path.join(ROOT, "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# ─── 全局错误处理 ────────────────────────────────
 import traceback as _tb
 from starlette.requests import Request as _SR
 from starlette.responses import PlainTextResponse
@@ -292,58 +298,90 @@ async def home(request: Request):
 # ─── 录入 ──────────────────────────────────────
 
 _JS_OCR = r"""
-var _ocrQuestions=[];
-async function ocrUpload(inputEl){
+var _processedImg='';
+var _regions=[];
+var _selectedRegions={};
+async function processImage(inputEl){
   var f=inputEl.files[0];
   if(!f) return;
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='AI正在识别图片中的题目...';
+  document.getElementById('ldMsg').textContent='AI正在分析图片...';
   var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
-    var r=await fetch('/mistake/ocr',{method:'POST',body:d});
+    var r=await fetch('/mistake/process-image',{method:'POST',body:d});
     var j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    _ocrQuestions=j.questions||[];
-    renderSelectionUI(_ocrQuestions);
-  }catch(e){alert('网络或服务错误，请重试：'+e.message);location.reload()}
+    _processedImg=j.processed_image_url;
+    _regions=j.question_regions||[];
+    _selectedRegions={};
+    renderProcessedUI();
+  }catch(e){alert('处理失败：'+e.message);location.reload()}
 }
-function renderSelectionUI(questions){
-  if(!questions||questions.length===0){alert('未识别到题目，请重新拍照');location.reload();return}
+function renderProcessedUI(){
   var sel=document.getElementById('sel');
-  var html='<div class="sel-header"><div class="sel-title">识别到 '+questions.length+' 道题，请选择要保存的题目</div><button type="button" class="sel-all-btn" onclick="selAll()">全选</button></div>';
-  html+='<div class="sel-count" id="selCount">已选 0/'+questions.length+' 道</div>';
-  questions.forEach(function(q,i){
-    html+='<label class="qcard" id="qcard_'+i+'">';
-    html+='<div class="qcard-left"><input type="checkbox" class="qcheck" id="qchk_'+i+'" onchange="updateSelCount('+questions.length+')"><span class="qcard-idx">'+esc(q.question_index||(i+1))+'</span></div>';
-    html+='<div class="qcard-body"><div class="qcard-text">'+esc(q.question_text||'')+'</div></div></label>';
+  if(_regions.length===0){
+    sel.innerHTML='<div style="text-align:center;padding:40px;color:var(--ts);">未检测到题目区域，请重新拍照</div><button class="btn btn-p" onclick="location.reload()" style="margin-top:12px;">重新拍照</button>';
+    sel.style.display='block';return;
+  }
+  var html='<div class="sel-header"><div class="sel-title">检测到 '+_regions.length+' 个题目区域，点击 <b style="color:var(--b);font-size:18px;">+</b> 选择</div></div>';
+  html+='<div class="sel-count" id="selCount">已选 0/'+_regions.length+' 道</div>';
+  html+='<div class="proc-img-wrap" id="procImgWrap">';
+  html+='<img src="'+_processedImg+'" class="proc-img" id="procImg" onload="placeButtons()">';
+  _regions.forEach(function(r,i){
+    html+='<div class="pbtn" id="pbtn_'+i+'" onclick="toggleRegion('+i+')" style="position:absolute;display:none;">+</div>';
   });
-  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="confirmSelection()">确认保存选题</button>';
-  sel.innerHTML=html;sel.style.display='block';updateSelCount(questions.length);
+  html+='</div>';
+  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="saveRegions()">保存选题</button>';
+  sel.innerHTML=html;sel.style.display='block';
 }
-function updateSelCount(total){
-  var n=document.querySelectorAll('.qcheck:checked').length;
-  document.getElementById('selCount').textContent='已选 '+n+'/'+total+' 道';
-  document.getElementById('selConfirmBtn').textContent='确认保存选题（'+n+'道）';
-}
-function selAll(){
-  document.querySelectorAll('.qcheck').forEach(function(cb){cb.checked=true});
-  updateSelCount(document.querySelectorAll('.qcheck').length);
-}
-async function confirmSelection(){
-  var selectedIndices=[];
-  document.querySelectorAll('.qcheck:checked').forEach(function(cb){
-    selectedIndices.push(parseInt(cb.id.replace('qchk_','')));
+function placeButtons(){
+  var wrap=document.getElementById('procImgWrap');
+  var img=document.getElementById('procImg');
+  var iw=img.naturalWidth, ih=img.naturalHeight;
+  var dw=img.clientWidth, dh=img.clientHeight;
+  _regions.forEach(function(r,i){
+    var btn=document.getElementById('pbtn_'+i);
+    var cx=(r.x1+r.x2)/2*dw/dw;
+    var cy=r.y1*dh;
+    var x=r.x1*dw, y=r.y1*dh, w=(r.x2-r.x1)*dw;
+    btn.style.left=(x+w-18)+'px';
+    btn.style.top=(y-4)+'px';
+    btn.style.display='flex';
+    btn.setAttribute('data-x1',r.x1);
+    btn.setAttribute('data-y1',r.y1);
+    btn.setAttribute('data-x2',r.x2);
+    btn.setAttribute('data-y2',r.y2);
   });
-  if(selectedIndices.length===0) return alert('请至少选择一道题');
-  var selectedQuestions=selectedIndices.map(function(i){return _ocrQuestions[i];});
+}
+window.addEventListener('resize',function(){if(_regions.length>0)placeButtons();});
+function toggleRegion(idx){
+  var btn=document.getElementById('pbtn_'+idx);
+  if(_selectedRegions[idx]){
+    delete _selectedRegions[idx];
+    btn.classList.remove('pbtn-sel');
+  }else{
+    _selectedRegions[idx]=_regions[idx];
+    btn.classList.add('pbtn-sel');
+  }
+  var n=Object.keys(_selectedRegions).length;
+  document.getElementById('selCount').textContent='已选 '+n+'/'+_regions.length+' 道';
+  document.getElementById('selConfirmBtn').textContent='保存选题（'+n+'道）';
+}
+async function saveRegions(){
+  var keys=Object.keys(_selectedRegions);
+  if(keys.length===0) return alert('请至少选择一个题目区域');
+  var selected=keys.map(function(k){return _selectedRegions[k];});
   document.getElementById('sel').style.display='none';
   document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='正在保存 '+selectedQuestions.length+' 道题目...';
-  var d=new FormData();d.append('questions',JSON.stringify(selectedQuestions));d.append('subject',document.getElementById('curSubject').value);
+  document.getElementById('ldMsg').textContent='正在保存...';
+  var d=new FormData();
+  d.append('image_path',_processedImg);
+  d.append('regions',JSON.stringify(selected));
+  d.append('subject',document.getElementById('curSubject').value);
   try{
-    var r=await fetch('/mistake/save',{method:'POST',body:d}),j=await r.json();
+    var r=await fetch('/mistake/save-regions',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
     var subj=document.getElementById('curSubject').value;
@@ -416,8 +454,8 @@ async def mistake_page(request: Request):
     <input type="hidden" id="curSubject" value="math">
     <div class="section-label" style="margin-top:8px;">二、录入方式</div>
     <div class="sub-label">方式一：拍照识别（推荐）</div>
-    <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none;" onchange="ocrUpload(this)">
-    <input type="file" id="photoGallery" accept="image/*" style="display:none;" onchange="ocrUpload(this)">
+    <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none;" onchange="processImage(this)">
+    <input type="file" id="photoGallery" accept="image/*" style="display:none;" onchange="processImage(this)">
     <div class="photo-btns">
       <button type="button" class="photo-btn photo-btn-camera" onclick="document.getElementById('photoCamera').click()">
         <span class="photo-btn-icon">📷</span>拍照识别
@@ -435,6 +473,47 @@ async def mistake_page(request: Request):
     <script>function setSubj(s,el){document.querySelectorAll('.chip-row .chip').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');document.getElementById('curSubject').value=s};</script>
     <script>""" + _JS_OCR + "</script>"
     return HTMLResponse(_pg(html, "录入错题"))
+
+@app.post("/mistake/process-image")
+async def mistake_process_image(request: Request):
+    """Image processing pipeline: flatten → analyze → erase → return with regions"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    photo = form.get("photo")
+    if not photo or not hasattr(photo, 'filename') or not photo.filename:
+        return JSONResponse({"error":"请上传图片"}, 400)
+    img_bytes = await photo.read()
+    if len(img_bytes) < 100:
+        return JSONResponse({"error":"图片文件太小或损坏"}, 400)
+    pf = ctx["profile"]
+    grade = pf.get("grade_level", "grade_4")
+    subject = form.get("subject", "math")
+    import time, hashlib
+    ts = str(int(time.time() * 1000))
+    h = hashlib.md5(img_bytes[:1024]).hexdigest()[:8]
+    fname = f"{ts}_{h}.jpg"
+    processed_dir = os.path.join(ROOT, "static", "processed")
+    os.makedirs(processed_dir, exist_ok=True)
+    try:
+        from image_utils import flatten_page, erase_handwriting
+        from ai import analyze_homework
+        flat_bytes = flatten_page(img_bytes)
+        analysis = analyze_homework(flat_bytes, grade, subject)
+        clean_bytes = erase_handwriting(flat_bytes, analysis.get("handwriting_regions", []))
+        out_path = os.path.join(processed_dir, fname)
+        with open(out_path, "wb") as f:
+            f.write(clean_bytes)
+        return JSONResponse({
+            "processed_image_url": f"/static/processed/{fname}",
+            "question_regions": analysis.get("question_regions", [])
+        })
+    except Exception as e:
+        msg = str(e)
+        if "VISION_API_KEY" in msg or "Vision API" in msg:
+            return JSONResponse({"error":"Vision API 未配置，请设置 VISION_API_KEY 环境变量"}, 500)
+        return JSONResponse({"error":f"图片处理失败：{msg}"}, 500)
+
 
 @app.post("/mistake/ocr")
 async def mistake_ocr(request: Request):
@@ -522,6 +601,83 @@ async def mistake_save(request: Request):
                 saved_count += 1
 
     return JSONResponse({"count": len(questions), "saved_to_db": saved_count, "folder": f"saved/{subject}/", "file": filename})
+
+
+@app.post("/mistake/save-regions")
+async def mistake_save_regions(request: Request):
+    """Save cropped question regions from processed image"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    image_path = form.get("image_path", "")
+    regions_json = form.get("regions", "[]")
+    regions = json.loads(regions_json)
+    subject = form.get("subject", "math")
+    if not regions:
+        return JSONResponse({"error":"请选择至少一个区域"}, 400)
+
+    pf = ctx["profile"]
+    grade = pf.get("grade_level", "grade_4")
+    curriculum = pf.get("curriculum_version", "人教版")
+    conn = ctx.get("conn")
+
+    # Auto-add subject
+    n = ctx["student"]
+    subs = _users[n].get("subjects", ["math"])
+    if subject in SUBJECT_NAMES and subject not in subs:
+        subs.append(subject)
+        _users[n]["subjects"] = subs
+        try:
+            d = os.path.join(_DATA_ROOT, "user_data", n)
+            json.dump(_users[n], open(os.path.join(d, "profile.json"), "w"), ensure_ascii=False, indent=2)
+        except: pass
+
+    # Read processed image
+    full_path = os.path.join(ROOT, image_path.lstrip("/"))
+    if not os.path.exists(full_path):
+        return JSONResponse({"error":"处理图片已过期，请重新拍照"}, 400)
+
+    try:
+        from PIL import Image
+        img = Image.open(full_path)
+        w, h = img.size
+    except Exception:
+        return JSONResponse({"error":"无法打开处理图片"}, 400)
+
+    # Crop and save each region
+    import time as _tm, hashlib as _hl
+    crop_dir = os.path.join(ROOT, "saved", subject)
+    os.makedirs(crop_dir, exist_ok=True)
+
+    saved = 0
+    for r in regions:
+        x1 = max(0, int(r["x1"] * w))
+        y1 = max(0, int(r["y1"] * h))
+        x2 = min(w, int(r["x2"] * w))
+        y2 = min(h, int(r["y2"] * h))
+        if x2 <= x1 or y2 <= y1:
+            continue
+        cropped = img.crop((x1, y1, x2, y2))
+        ts = str(int(_tm.time() * 1000))
+        crop_name = f"crop_{ts}_{saved}.jpg"
+        crop_path = os.path.join(crop_dir, crop_name)
+        cropped.save(crop_path, "JPEG", quality=85)
+
+        qn = r.get("question_number", "")
+        label = r.get("label", "")
+        label_str = f" ({label})" if label else ""
+        if conn:
+            from db import insert_mistake
+            insert_mistake(conn,
+                subject=subject,
+                original_problem=f"IMAGE:saved/{subject}/{crop_name}",
+                wrong_answer="", correct_answer="",
+                knowledge_point="图片录入", error_type="thinking_error",
+                error_analysis=f"题号{qn}{label_str}，图片拍照录入，待诊断",
+                pool_status="active", grade_level=grade, curriculum_ver=curriculum)
+        saved += 1
+
+    return JSONResponse({"count": saved})
 
 
 @app.post("/mistake/diagnose")
@@ -654,11 +810,15 @@ async def mistakes_list(request: Request):
         ms=list_mistakes(conn, subject=subject if subject else None, limit=200)
         em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
         for m in ms:
-            if m.get("knowledge_point") == "OCR录入":
-                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">OCR</span><span style="font-size:14px;color:var(--t);line-height:1.6;">{m["original_problem"]}</span></div>'
+            op = m["original_problem"]
+            if op.startswith("IMAGE:"):
+                img_path = op[6:]
+                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">图片</span><img src="/{img_path}" style="max-width:100%;border-radius:10px;max-height:200px;" alt="错题图片"></div>'
+            elif m.get("knowledge_point") in ("OCR录入", "图片录入"):
+                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">录入</span><span style="font-size:14px;color:var(--t);line-height:1.6;">{op}</span></div>'
             else:
                 ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
-                mh+=f'<div class="crd2"><span class="tag {ec}">{em.get(m["error_type"],"")}</span><span style="font-size:13px;color:var(--t);"> {m["original_problem"][:60]}</span></div>'
+                mh+=f'<div class="crd2"><span class="tag {ec}">{em.get(m["error_type"],"")}</span><span style="font-size:13px;color:var(--t);"> {op[:60]}</span></div>'
     title=f"{subject_label}错题本" if subject else "错题回顾"
     body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{mh or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}</div>'
     return HTMLResponse(_pg(body,"回顾"))
@@ -705,10 +865,17 @@ async def exam_point_detail(request: Request, kp: str):
         for m in ms:
             em = {"knowledge_gap": "知识盲区", "thinking_error": "思路错误", "careless": "粗心"}
             ec = "tag-kg" if m['error_type'] == 'knowledge_gap' else ("tag-te" if m['error_type'] == 'thinking_error' else "tag-cl")
-            mistakes_html += f'''<div class="crd">
-              <span class="tag {ec}">{em.get(m["error_type"], "")}</span>
-              <div style="font-size:14px;color:var(--t);margin-top:8px;">{m["original_problem"][:100]}</div>
-            </div>'''
+            op = m["original_problem"]
+            if op.startswith("IMAGE:"):
+                mistakes_html += f'''<div class="crd">
+                  <span class="tag" style="background:var(--c);color:var(--tw);">图片题</span>
+                  <img src="/{op[6:]}" style="max-width:100%;border-radius:10px;max-height:200px;margin-top:8px;" alt="错题图片">
+                </div>'''
+            else:
+                mistakes_html += f'''<div class="crd">
+                  <span class="tag {ec}">{em.get(m["error_type"], "")}</span>
+                  <div style="font-size:14px;color:var(--t);margin-top:8px;">{op[:100]}</div>
+                </div>'''
     body = f"""<div class="pg">
     <div class="nb"><a href="/exam-points">← 返回</a><span class="tt">{kp}</span></div>
     {mistakes_html or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无记录</div>"}
@@ -913,7 +1080,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.proc-img-wrap{position:relative;display:inline-block;width:100%;border-radius:14px;overflow:hidden;background:var(--c)}.proc-img{display:block;width:100%;height:auto;border-radius:14px}.pbtn{position:absolute;width:28px;height:28px;background:var(--b);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.25);transition:transform .15s,background .15s;user-select:none;-webkit-tap-highlight-color:transparent}.pbtn:active{transform:scale(1.15)}.pbtn-sel{background:var(--g);transform:scale(1.1);box-shadow:0 2px 12px rgba(52,199,89,.4)}.pbtn-sel::after{content:' \\2713';font-size:14px}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""

@@ -257,3 +257,71 @@ def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "
         except Exception as e:
             if attempt == 2:
                 raise RuntimeError(f"OCR识别失败（重试3次后）: {e}")
+
+
+def analyze_homework(image_bytes: bytes, grade_level: str,
+                     subject: str = "数学") -> dict:
+    """单次Vision API调用，分析作业图片结构。
+    返回: {
+        "handwriting_regions": [{x1,y1,x2,y2}],  # 手写区域，比例坐标
+        "question_regions": [{question_number, label, x1,y1,x2,y2}]  # 题目区域
+    }
+    """
+    client = _get_vision_client()
+    model = _get_vision_model()
+    compressed_bytes, mime_type = _compress_image(image_bytes)
+    img_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
+
+    prompt = f"""请分析这张{grade_level}{subject}作业照片的版面结构。
+
+你的任务：
+1. 找出所有学生手写答案和老师批改痕迹的区域
+2. 找出每道独立题目的区域（按题号识别）
+
+=== 输出格式 ===
+只返回JSON：
+{{
+  "handwriting_regions": [
+    {{"x1": 0.1, "y1": 0.2, "x2": 0.5, "y2": 0.3}}
+  ],
+  "question_regions": [
+    {{"question_number": "1", "label": "选择题", "x1": 0.05, "y1": 0.1, "x2": 0.95, "y2": 0.25}}
+  ]
+}}
+
+坐标要求：
+- x1,y1 是区域左上角，x2,y2 是区域右下角
+- 所有坐标值都是相对于图片宽高的比例（0.0~1.0）
+- 手写区域要略大于实际笔迹（多扩展5%），确保擦除能完全覆盖
+- 题目区域要准确包围题目文字和填空横线、选项等内容
+- 每个区域都要有合理的宽度和高度（area > 0.01）
+
+如果没有找到任何手写区域，handwriting_regions 返回空数组 []。
+如果找不到独立题目区域，question_regions 返回空数组 []。"""
+
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=4096,
+                temperature=0.1,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:{mime_type};base64,{img_b64}"
+                        }},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            )
+            result = _parse_json(response.choices[0].message.content)
+            if not isinstance(result, dict):
+                raise ValueError("Expected JSON object")
+            result.setdefault("handwriting_regions", [])
+            result.setdefault("question_regions", [])
+            return result
+        except Exception as e:
+            if attempt == 2:
+                # 失败时返回空结果，不影响主流程
+                return {"handwriting_regions": [], "question_regions": []}
