@@ -346,18 +346,18 @@ async function confirmSelection(){
     var r=await fetch('/mistake/save',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
-    var html='<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">&#x2705;</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:4px;">保存成功</div><div style="font-size:13px;color:var(--ts);">已保存 '+j.count+' 道题目到 '+j.folder+'</div><button class="btn btn-p" style="margin-top:20px;" onclick="location.reload()">继续录入</button></div>';
+    var subj=document.getElementById('curSubject').value;
+    var html='<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">&#x2705;</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:4px;">保存成功</div><div style="font-size:13px;color:var(--ts);">已保存 '+j.count+' 道题目</div><div style="margin-top:16px;display:flex;gap:10px;justify-content:center;"><button class="btn btn-p" onclick="location.reload()">继续录入</button><a href="/mistakes?subject='+subj+'" class="btn" style="background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;text-decoration:none;display:inline-block;">查看错题本</a></div></div>';
     document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
   }catch(e){alert(e);location.reload()}
 }
 async function goM(){
   var a=document.getElementById('prob').value.trim();
-  var b=document.getElementById('wans').value.trim();
   if(!a) return alert('请输入题目');
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
   document.getElementById('ldMsg').textContent='AI正在诊断...';
-  var d=new FormData();d.append('problem',a);d.append('wrong_answer',b);d.append('subject',document.getElementById('curSubject').value);
+  var d=new FormData();d.append('problem',a);d.append('wrong_answer','');d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/new',{method:'POST',body:d}),j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
@@ -428,7 +428,6 @@ async def mistake_page(request: Request):
     </div>
     <div class="sub-label" style="margin-top:20px;">方式二：手动输入</div>
     <textarea class="txa" id="prob" placeholder="输入题目..."></textarea>
-    <div class="sub-label">你的错误答案</div><input class="inp" id="wans" placeholder="考试/作业中写的答案">
     <button class="btn btn-p" onclick="goM()">提交，开始AI诊断</button></div>
     <div id="ld" style="display:none;text-align:center;padding:40px;"><div class="spinner"></div><div id="ldMsg" style="color:var(--ts);">AI正在识别题目...</div></div>
     <div id="sel" style="display:none;"></div>
@@ -468,7 +467,7 @@ async def mistake_ocr(request: Request):
 
 @app.post("/mistake/save")
 async def mistake_save(request: Request):
-    """Save selected questions as clean text files organized by subject"""
+    """Save selected questions as clean text files + save to DB for 错题本"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -478,6 +477,23 @@ async def mistake_save(request: Request):
     if not questions:
         return JSONResponse({"error": "请选择至少一道题"}, 400)
 
+    pf = ctx["profile"]
+    grade = pf.get("grade_level", "grade_4")
+    curriculum = pf.get("curriculum_version", "人教版")
+    conn = ctx.get("conn")
+
+    # Auto-add subject to profile if needed
+    n = ctx["student"]
+    subs = _users[n].get("subjects", ["math"])
+    if subject in SUBJECT_NAMES and subject not in subs:
+        subs.append(subject)
+        _users[n]["subjects"] = subs
+        try:
+            d = os.path.join(_DATA_ROOT, "user_data", n)
+            json.dump(_users[n], open(os.path.join(d, "profile.json"), "w"), ensure_ascii=False, indent=2)
+        except: pass
+
+    # Save to text files
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved", subject)
     os.makedirs(base_dir, exist_ok=True)
     timestamp = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -490,7 +506,22 @@ async def mistake_save(request: Request):
             text = q.get("question_text", "").strip()
             f.write(f"{idx}. {text}\n\n")
 
-    return JSONResponse({"count": len(questions), "folder": f"saved/{subject}/", "file": filename})
+    # Also save to DB for 错题本
+    saved_count = 0
+    if conn:
+        from db import insert_mistake
+        for q in questions:
+            text = q.get("question_text", "").strip()
+            if text:
+                insert_mistake(conn,
+                    subject=subject, original_problem=text,
+                    wrong_answer="", correct_answer="",
+                    knowledge_point="OCR录入", error_type="thinking_error",
+                    error_analysis="OCR拍照录入，待诊断",
+                    pool_status="active", grade_level=grade, curriculum_ver=curriculum)
+                saved_count += 1
+
+    return JSONResponse({"count": len(questions), "saved_to_db": saved_count, "folder": f"saved/{subject}/", "file": filename})
 
 
 @app.post("/mistake/diagnose")
@@ -615,14 +646,21 @@ async def report_page(request: Request):
 async def mistakes_list(request: Request):
     redir, ctx = _auth(request)
     if redir: return redir
+    subject = request.query_params.get("subject", "")
+    subject_label = SUBJECT_NAMES.get(subject, subject)
     conn=ctx.get("conn"); mh=""
     if conn:
         from db import list_mistakes
-        ms=list_mistakes(conn,limit=100); em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
+        ms=list_mistakes(conn, subject=subject if subject else None, limit=200)
+        em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
         for m in ms:
-            ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
-            mh+=f'<div class="crd2"><span class="tag {ec}">{em.get(m["error_type"],"")}</span><span style="font-size:13px;color:var(--t);"> {m["original_problem"][:60]}</span></div>'
-    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">错题回顾</span></div>{mh or "<div>暂无数据</div>"}</div>'
+            if m.get("knowledge_point") == "OCR录入":
+                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">OCR</span><span style="font-size:14px;color:var(--t);line-height:1.6;">{m["original_problem"]}</span></div>'
+            else:
+                ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
+                mh+=f'<div class="crd2"><span class="tag {ec}">{em.get(m["error_type"],"")}</span><span style="font-size:13px;color:var(--t);"> {m["original_problem"][:60]}</span></div>'
+    title=f"{subject_label}错题本" if subject else "错题回顾"
+    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{mh or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}</div>'
     return HTMLResponse(_pg(body,"回顾"))
 
 # ─── 考点通 ────────────────────────────────────
