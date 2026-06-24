@@ -301,12 +301,13 @@ async function ocrUpload(inputEl){
   document.getElementById('ldMsg').textContent='AI正在识别图片中的题目...';
   var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
-    var r=await fetch('/mistake/ocr',{method:'POST',body:d}),j=await r.json();
+    var r=await fetch('/mistake/ocr',{method:'POST',body:d});
+    var j=await r.json();
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
     _ocrQuestions=j.questions||[];
     renderSelectionUI(_ocrQuestions);
-  }catch(e){alert(e);location.reload()}
+  }catch(e){alert('网络或服务错误，请重试：'+e.message);location.reload()}
 }
 function renderSelectionUI(questions){
   if(!questions||questions.length===0){alert('未识别到题目，请重新拍照');location.reload();return}
@@ -438,7 +439,7 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/ocr")
 async def mistake_ocr(request: Request):
-    """Stage 1: Pure OCR - extract questions from photo, no diagnosis"""
+    """Pure OCR - extract clean questions from photo"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -446,15 +447,23 @@ async def mistake_ocr(request: Request):
     if not photo or not hasattr(photo, 'filename') or not photo.filename:
         return JSONResponse({"error":"请上传图片"}, 400)
     img_bytes = await photo.read()
+    if len(img_bytes) < 100:
+        return JSONResponse({"error":"图片文件太小或损坏"}, 400)
     pf = ctx["profile"]
     grade = pf.get("grade_level", "grade_4")
     subject = form.get("subject", "math")
     ext = os.path.splitext(photo.filename)[1].lower()
     mime_map = {"png":"image/png","jpg":"image/jpeg","jpeg":"image/jpeg","gif":"image/gif","webp":"image/webp"}
     mime_type = mime_map.get(ext, "image/jpeg")
-    from ai import pure_ocr_from_bytes
-    questions = pure_ocr_from_bytes(img_bytes, grade, mime_type, subject)
-    return JSONResponse({"questions": questions})
+    try:
+        from ai import pure_ocr_from_bytes
+        questions = pure_ocr_from_bytes(img_bytes, grade, mime_type, subject)
+        return JSONResponse({"questions": questions})
+    except Exception as e:
+        msg = str(e)
+        if "VISION_API_KEY" in msg or "Vision API" in msg:
+            return JSONResponse({"error":"OCR服务未配置：缺少 VISION_API_KEY 环境变量，请在 Zeabur 控制台添加"}, 500)
+        return JSONResponse({"error":f"OCR识别失败：{msg}"}, 500)
 
 
 @app.post("/mistake/save")
