@@ -272,33 +272,49 @@ def analyze_homework(image_bytes: bytes, grade_level: str,
     compressed_bytes, mime_type = _compress_image(image_bytes)
     img_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
 
-    prompt = f"""请分析这张{grade_level}{subject}作业照片的版面结构。
+    prompt = f"""你是一位专业的试卷版面分析专家。请仔细分析这张{grade_level}{subject}作业照片的版面结构。
 
-你的任务：
-1. 找出所有学生手写答案和老师批改痕迹的区域
-2. 找出每道独立题目的区域（按题号识别）
+这张照片是一张试卷/作业，上面有多道题目。你的任务分两步：
+
+=== 第一步：找手写区域 ===
+找出所有学生手写答案和老师红笔批改痕迹的位置。手写区域要略大于实际笔迹（多扩展5%），确保擦除能完全覆盖。
+
+=== 第二步：划分题目区域 ===
+仔细观察图片，找出所有独立的题目。每道题通常有以下特征：
+- 有题号标识（如"1"、"2"、"三-1"等数字或编号）
+- 包含题目描述文字
+- 可能有填空横线（____）、括号（）、选项（A/B/C/D）
+- 题目之间通常有自然间隔
+
+记住：每一道有独立题号的题目都是一个独立区域。请仔细扫描整个页面，不要遗漏任何题目。
+
+=== 坐标规范 ===
+- x1,y1 是区域左上角，x2,y2 是区域右下角
+- 所有值都是占图片宽高的比例（0.0 ~ 1.0，如 x1=0.05 表示从图片左边5%处开始）
+- 题目区域的 x1 通常接近 0.05（左边距），x2 通常接近 0.95（右边距）
+- 题目区域的高度(y2-y1)通常占图片高度的 5%-15%
+- 相邻题目区域上下紧密排列，从上往下依次编号
 
 === 输出格式 ===
-只返回JSON：
+只返回JSON，不要任何其他文字：
 {{
   "handwriting_regions": [
-    {{"x1": 0.1, "y1": 0.2, "x2": 0.5, "y2": 0.3}}
+    {{"x1": 0.15, "y1": 0.35, "x2": 0.6, "y2": 0.42}}
   ],
   "question_regions": [
-    {{"question_number": "1", "label": "选择题", "x1": 0.05, "y1": 0.1, "x2": 0.95, "y2": 0.25}}
+    {{"question_number": "1", "label": "", "x1": 0.05, "y1": 0.48, "x2": 0.95, "y2": 0.60}},
+    {{"question_number": "2", "label": "", "x1": 0.05, "y1": 0.60, "x2": 0.95, "y2": 0.73}}
   ]
 }}
 
-坐标要求：
-- x1,y1 是区域左上角，x2,y2 是区域右下角
-- 所有坐标值都是相对于图片宽高的比例（0.0~1.0）
-- 手写区域要略大于实际笔迹（多扩展5%），确保擦除能完全覆盖
-- 题目区域要准确包围题目文字和填空横线、选项等内容
-- 每个区域都要有合理的宽度和高度（area > 0.01）
+重要提示：
+- 手写区域和题目区域都按实际情况返回，有空就写空数组[]
+- question_number 必须保留原题的题号格式
+- 一定要把图片从上到下仔细看一遍，确认有多少道题
+- 题目区域之间可以有小间隙（y1/y2之间的gap），但每个区域内必须完整包含该题的所有文字"""
 
-如果没有找到任何手写区域，handwriting_regions 返回空数组 []。
-如果找不到独立题目区域，question_regions 返回空数组 []。"""
 
+    last_error = None
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
@@ -322,6 +338,10 @@ def analyze_homework(image_bytes: bytes, grade_level: str,
             result.setdefault("question_regions", [])
             return result
         except Exception as e:
+            last_error = e
             if attempt == 2:
+                msg = str(e)
+                if "balance" in msg.lower() or "insufficient" in msg.lower():
+                    raise RuntimeError("Vision API 账户余额不足，请前往 https://cloud.siliconflow.cn 充值")
                 # 失败时返回空结果，不影响主流程
                 return {"handwriting_regions": [], "question_regions": []}

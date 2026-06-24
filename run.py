@@ -322,8 +322,13 @@ async function processImage(inputEl){
 function renderProcessedUI(){
   var sel=document.getElementById('sel');
   if(_regions.length===0){
-    sel.innerHTML='<div style="text-align:center;padding:40px;color:var(--ts);">未检测到题目区域，请重新拍照</div><button class="btn btn-p" onclick="location.reload()" style="margin-top:12px;">重新拍照</button>';
-    sel.style.display='block';return;
+    var html='<div class="sel-header"><div class="sel-title">未检测到独立题目区域</div></div>';
+    html+='<div class="proc-img-wrap"><img src="'+_processedImg+'" class="proc-img"></div>';
+    html+='<div style="margin-top:12px;display:flex;gap:10px;">';
+    html+='<button class="btn" style="flex:1;background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;" onclick="location.reload()">重新拍照</button>';
+    html+='<button class="btn btn-p" style="flex:1;" onclick="saveFullImage()">保存全图</button>';
+    html+='</div>';
+    sel.innerHTML=html;sel.style.display='block';return;
   }
   var html='<div class="sel-header"><div class="sel-title">检测到 '+_regions.length+' 个题目区域，点击 <b style="color:var(--b);font-size:18px;">+</b> 选择</div></div>';
   html+='<div class="sel-count" id="selCount">已选 0/'+_regions.length+' 道</div>';
@@ -368,6 +373,23 @@ function toggleRegion(idx){
   var n=Object.keys(_selectedRegions).length;
   document.getElementById('selCount').textContent='已选 '+n+'/'+_regions.length+' 道';
   document.getElementById('selConfirmBtn').textContent='保存选题（'+n+'道）';
+}
+async function saveFullImage(){
+  document.getElementById('sel').style.display='none';
+  document.getElementById('ld').style.display='block';
+  document.getElementById('ldMsg').textContent='正在保存全图...';
+  var d=new FormData();
+  d.append('image_path',_processedImg);
+  d.append('regions',JSON.stringify([{x1:0,y1:0,x2:1,y2:1,question_number:'全图'}]));
+  d.append('subject',document.getElementById('curSubject').value);
+  try{
+    var r=await fetch('/mistake/save-regions',{method:'POST',body:d}),j=await r.json();
+    if(j.error){alert(j.error);location.reload();return}
+    document.getElementById('ld').style.display='none';
+    var subj=document.getElementById('curSubject').value;
+    var html='<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">&#x2705;</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:4px;">保存成功</div><div style="font-size:13px;color:var(--ts);">已保存 1 道题目（全图）</div><div style="margin-top:16px;display:flex;gap:10px;justify-content:center;"><button class="btn btn-p" onclick="location.reload()">继续录入</button><a href="/mistakes?subject='+subj+'" class="btn" style="background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;text-decoration:none;display:inline-block;">查看错题本</a></div></div>';
+    document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
+  }catch(e){alert(e);location.reload()}
 }
 async function saveRegions(){
   var keys=Object.keys(_selectedRegions);
