@@ -1285,7 +1285,9 @@ h1{{text-align:center;font-size:20px;margin-bottom:24px;color:#333}}
             return Response(content=pdf_bytes, media_type="application/pdf",
                           headers={"Content-Disposition": 'attachment; filename="错题导出.pdf"'})
         except Exception as e:
-            return HTMLResponse(f"PDF生成失败: {e}", 500)
+            import traceback
+            tb = traceback.format_exc()
+            return HTMLResponse(f"<pre>PDF生成失败: {e}\n\n{tb}</pre>", 500)
 
     # HTML 预览模式
     preview_html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错题导出打印</title>
