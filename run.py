@@ -303,14 +303,16 @@ async def home(request: Request):
 
 _JS_OCR = r"""
 var _processedImg='';
-var _regions=[];
-var _selectedRegions={};
+var _selections=[];  // [{id, x1,y1,x2,y2}], coords 0~1 relative to img natural size
+var _nextId=0;
+var _drawing=null;   // {startX,startY,x1,y1,x2,y2} in px relative to imgWrap
+
 async function processImage(inputEl){
   var f=inputEl.files[0];
   if(!f) return;
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='AI正在分析图片...';
+  document.getElementById('ldMsg').textContent='展平图片...';
   var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/process-image',{method:'POST',body:d});
@@ -318,93 +320,157 @@ async function processImage(inputEl){
     if(j.error){alert(j.error);location.reload();return}
     document.getElementById('ld').style.display='none';
     _processedImg=j.processed_image_url;
-    _regions=j.question_regions||[];
-    _selectedRegions={};
-    renderProcessedUI();
+    _selections=[];_nextId=0;
+    renderDrawUI();
   }catch(e){alert('处理失败：'+e.message);location.reload()}
 }
-function renderProcessedUI(){
+
+function renderDrawUI(){
   var sel=document.getElementById('sel');
   sel.className='sel-overlay';
-  var title='检测到 '+_regions.length+' 个题目区域';
-  var noRegions=_regions.length===0;
-  var html='<div class="sel-topbar"><span class="sel-topbar-title">'+title+'</span><button class="sel-close" onclick="location.reload()">✕</button></div>';
-  html+='<div class="sel-scroll">';
-  html+='<div class="proc-img-wrap" id="procImgWrap">';
-  html+='<img src="'+_processedImg+'" class="proc-img" id="procImg" onload="placeButtons()">';
-  if(!noRegions){
-    _regions.forEach(function(r,i){
-      html+='<div class="poverlay" id="poverlay_'+i+'" onclick="toggleRegion('+i+')" style="display:none;"><div class="pbtn">+</div></div>';
-    });
-  }
+  var html='<div class="sel-topbar"><span class="sel-topbar-title">框选题目区域</span><button class="sel-close" onclick="location.reload()">✕</button></div>';
+  html+='<div class="sel-hint" style="text-align:center;font-size:12px;color:var(--ts);padding:4px 12px;">手指拖动画框 · 点击框内删除</div>';
+  html+='<div class="sel-scroll" id="selScroll">';
+  html+='<div class="draw-wrap" id="drawWrap">';
+  html+='<img src="'+_processedImg+'" class="draw-img" id="drawImg" onload="onImgLoad()">';
+  html+='<div class="draw-layer" id="drawLayer"></div>';
   html+='</div>';
   html+='</div>';
   html+='<div class="sel-bottombar">';
-  html+='<span class="sel-count" id="selCount">已选 0/'+_regions.length+' 道</span>';
-  if(noRegions){
-    html+='<button class="btn" style="background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;" onclick="location.reload()">重新拍照</button>';
-    html+='<button class="btn btn-p" onclick="saveFullImage()">保存全图</button>';
-  }else{
-    html+='<button class="btn btn-p" id="selConfirmBtn" onclick="saveRegions()">保存选题</button>';
-  }
+  html+='<span class="sel-count" id="selCount">已选 0 题</span>';
+  html+='<button class="btn btn-p" id="selConfirmBtn" onclick="saveSelections()">保存选题</button>';
   html+='</div>';
   sel.innerHTML=html;sel.style.display='flex';
+  setTimeout(bindDrawEvents,50);
 }
-function placeButtons(){
-  var img=document.getElementById('procImg');
-  var dw=img.clientWidth, dh=img.clientHeight;
-  _regions.forEach(function(r,i){
-    var overlay=document.getElementById('poverlay_'+i);
-    var x=r.x1*dw, y=r.y1*dh;
-    var w=(r.x2-r.x1)*dw, h=(r.y2-r.y1)*dh;
-    overlay.style.left=x+'px';
-    overlay.style.top=y+'px';
-    overlay.style.width=w+'px';
-    overlay.style.height=h+'px';
-    overlay.style.display='flex';
+
+function onImgLoad(){
+  syncSelectionDivs();
+  bindDrawEvents();
+}
+
+// ---- coordinate helpers ----
+function imgToNorm(px,py){
+  var img=document.getElementById('drawImg');
+  return {x:px/img.clientWidth, y:py/img.clientHeight};
+}
+function normToImg(nx,ny){
+  var img=document.getElementById('drawImg');
+  return {x:nx*img.clientWidth, y:ny*img.clientHeight};
+}
+function clampNorm(v){return Math.max(0,Math.min(1,v));}
+
+// ---- draw a single selection box on the layer ----
+function renderSelectionBox(s){
+  var layer=document.getElementById('drawLayer');
+  var id='selbox_'+s.id;
+  var el=document.getElementById(id);
+  if(!el){
+    el=document.createElement('div');el.id=id;
+    el.className='selbox';
+    el.innerHTML='<div class="selbox-del" data-sid="'+s.id+'">✕</div>';
+    el.querySelector('.selbox-del').addEventListener('pointerdown',function(e){
+      e.stopPropagation();e.preventDefault();
+      _selections=_selections.filter(function(x){return x.id!==s.id});
+      el.remove();updateCount();
+    });
+    layer.appendChild(el);
+  }
+  var p=normToImg(s.x1,s.y1);
+  var p2=normToImg(s.x2,s.y2);
+  el.style.left=p.x+'px';
+  el.style.top=p.y+'px';
+  el.style.width=Math.max(10,p2.x-p.x)+'px';
+  el.style.height=Math.max(10,p2.y-p.y)+'px';
+  el.style.display='block';
+}
+
+function syncSelectionDivs(){
+  var layer=document.getElementById('drawLayer');
+  // remove orphaned boxes
+  var ids=new Set(_selections.map(function(s){return 'selbox_'+s.id}));
+  Array.from(layer.children).forEach(function(c){
+    if(!ids.has(c.id)&&c.classList.contains('selbox')) c.remove();
+  });
+  _selections.forEach(function(s){renderSelectionBox(s);});
+}
+
+function updateCount(){
+  var n=_selections.length;
+  document.getElementById('selCount').textContent='已选 '+n+' 题';
+  document.getElementById('selConfirmBtn').textContent=n>0?'保存选题（'+n+'题）':'保存选题';
+}
+
+// ---- draw events ----
+function bindDrawEvents(){
+  var layer=document.getElementById('drawLayer');
+  if(!layer||layer._bound) return;
+  layer._bound=true;
+
+  layer.addEventListener('pointerdown',function(e){
+    if(e.target!==layer) return; // only draw on empty area
+    var rect=layer.getBoundingClientRect();
+    _drawing={startX:e.clientX-rect.left, startY:e.clientY-rect.top, x1:e.clientX-rect.left, y1:e.clientY-rect.top, x2:e.clientX-rect.left, y2:e.clientY-rect.top};
+    e.preventDefault();
+  });
+
+  layer.addEventListener('pointermove',function(e){
+    if(!_drawing) return;
+    var rect=layer.getBoundingClientRect();
+    _drawing.x2=e.clientX-rect.left;
+    _drawing.y2=e.clientY-rect.top;
+    // show temp rect
+    var tmp=document.getElementById('drawTmp');
+    if(!tmp){
+      tmp=document.createElement('div');tmp.id='drawTmp';
+      tmp.className='selbox selbox-tmp';
+      layer.appendChild(tmp);
+    }
+    var x=Math.min(_drawing.x1,_drawing.x2);
+    var y=Math.min(_drawing.y1,_drawing.y2);
+    var w=Math.abs(_drawing.x2-_drawing.x1);
+    var h=Math.abs(_drawing.y2-_drawing.y1);
+    tmp.style.left=x+'px';tmp.style.top=y+'px';
+    tmp.style.width=w+'px';tmp.style.height=h+'px';
+  });
+
+  layer.addEventListener('pointerup',function(e){
+    if(!_drawing) return;
+    var dx=Math.abs(_drawing.x2-_drawing.x1);
+    var dy=Math.abs(_drawing.y2-_drawing.y1);
+    // remove temp
+    var tmp=document.getElementById('drawTmp');
+    if(tmp) tmp.remove();
+    if(dx>20&&dy>20){
+      var n1=imgToNorm(Math.min(_drawing.x1,_drawing.x2),Math.min(_drawing.y1,_drawing.y2));
+      var n2=imgToNorm(Math.max(_drawing.x1,_drawing.x2),Math.max(_drawing.y1,_drawing.y2));
+      var s={id:_nextId++, x1:clampNorm(n1.x), y1:clampNorm(n1.y), x2:clampNorm(n2.x), y2:clampNorm(n2.y)};
+      _selections.push(s);
+      renderSelectionBox(s);
+      updateCount();
+    }
+    _drawing=null;
+  });
+
+  layer.addEventListener('pointerleave',function(e){
+    if(_drawing){
+      var tmp=document.getElementById('drawTmp');
+      if(tmp) tmp.remove();
+      _drawing=null;
+    }
   });
 }
-window.addEventListener('resize',function(){if(_regions.length>0)placeButtons();});
-function toggleRegion(idx){
-  var overlay=document.getElementById('poverlay_'+idx);
-  if(_selectedRegions[idx]){
-    delete _selectedRegions[idx];
-    overlay.classList.remove('poverlay-sel');
-  }else{
-    _selectedRegions[idx]=_regions[idx];
-    overlay.classList.add('poverlay-sel');
-  }
-  var n=Object.keys(_selectedRegions).length;
-  document.getElementById('selCount').textContent='已选 '+n+'/'+_regions.length+' 道';
-  document.getElementById('selConfirmBtn').textContent='保存选题（'+n+'道）';
-}
-async function saveFullImage(){
-  document.getElementById('sel').style.display='none';
-  document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='正在保存全图...';
-  var d=new FormData();
-  d.append('image_path',_processedImg);
-  d.append('regions',JSON.stringify([{x1:0,y1:0,x2:1,y2:1,question_number:'全图'}]));
-  d.append('subject',document.getElementById('curSubject').value);
-  try{
-    var r=await fetch('/mistake/save-regions',{method:'POST',body:d}),j=await r.json();
-    if(j.error){alert(j.error);location.reload();return}
-    document.getElementById('ld').style.display='none';
-    var subj=document.getElementById('curSubject').value;
-    var html='<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">&#x2705;</div><div style="font-size:16px;font-weight:700;color:var(--t);margin-bottom:4px;">保存成功</div><div style="font-size:13px;color:var(--ts);">已保存 1 道题目（全图）</div><div style="margin-top:16px;display:flex;gap:10px;justify-content:center;"><button class="btn btn-p" onclick="location.reload()">继续录入</button><a href="/mistakes?subject='+subj+'" class="btn" style="background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;text-decoration:none;display:inline-block;">查看错题本</a></div></div>';
-    document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
-  }catch(e){alert(e);location.reload()}
-}
-async function saveRegions(){
-  var keys=Object.keys(_selectedRegions);
-  if(keys.length===0) return alert('请至少选择一个题目区域');
-  var selected=keys.map(function(k){return _selectedRegions[k];});
+
+// ---- save ----
+async function saveSelections(){
+  if(_selections.length===0) return alert('请至少框选一个题目区域');
   document.getElementById('sel').style.display='none';
   document.getElementById('ld').style.display='block';
   document.getElementById('ldMsg').textContent='正在保存...';
   var d=new FormData();
   d.append('image_path',_processedImg);
-  d.append('regions',JSON.stringify(selected));
+  var regions=_selections.map(function(s){return{x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2};});
+  d.append('regions',JSON.stringify(regions));
   d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/save-regions',{method:'POST',body:d}),j=await r.json();
@@ -415,6 +481,9 @@ async function saveRegions(){
     document.getElementById('r').innerHTML=html;document.getElementById('r').style.display='block';
   }catch(e){alert(e);location.reload()}
 }
+
+window.addEventListener('resize',function(){if(_selections.length>0)syncSelectionDivs();});
+
 async function goM(){
   var a=document.getElementById('prob').value.trim();
   if(!a) return alert('请输入题目');
@@ -502,7 +571,7 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/process-image")
 async def mistake_process_image(request: Request):
-    """Image processing pipeline: flatten → layout detect → return with regions"""
+    """展平图片，返回给前端做手动框选"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -512,9 +581,6 @@ async def mistake_process_image(request: Request):
     img_bytes = await photo.read()
     if len(img_bytes) < 100:
         return JSONResponse({"error":"图片文件太小或损坏"}, 400)
-    pf = ctx["profile"]
-    grade = pf.get("grade_level", "grade_4")
-    subject = form.get("subject", "math")
     import time, hashlib
     ts = str(int(time.time() * 1000))
     h = hashlib.md5(img_bytes[:1024]).hexdigest()[:8]
@@ -522,18 +588,13 @@ async def mistake_process_image(request: Request):
     processed_dir = os.path.join(ROOT, "static", "processed")
     os.makedirs(processed_dir, exist_ok=True)
     try:
-        from image_utils import detect_question_regions
-
-        # 版面检测用原图（分辨率更高，PaddleOCR 效果好），返回比例坐标
-        question_regions = detect_question_regions(img_bytes)
-
-        # 展示原图给用户看，不做展平（展平在保存区域时按需做）
+        from image_utils import flatten_page
+        flat_bytes = flatten_page(img_bytes)
         out_path = os.path.join(processed_dir, fname)
         with open(out_path, "wb") as f:
-            f.write(img_bytes)
+            f.write(flat_bytes)
         return JSONResponse({
-            "processed_image_url": f"/static/processed/{fname}",
-            "question_regions": question_regions
+            "processed_image_url": f"/static/processed/{fname}"
         })
     except Exception as e:
         return JSONResponse({"error":f"图片处理失败：{e}"}, 500)
@@ -1084,7 +1145,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.proc-img-wrap{position:relative;display:inline-block;width:100%;border-radius:14px;overflow:hidden;background:var(--c)}.proc-img{display:block;width:100%;height:auto;border-radius:14px}.poverlay{position:absolute;background:rgba(91,127,255,0.04);border:2px dashed rgba(91,127,255,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;z-index:3;cursor:pointer;transition:background .15s,border-color .15s}.poverlay-sel{background:rgba(52,199,89,0.08);border:2px solid rgba(52,199,89,0.5)}.pbtn{width:36px;height:36px;background:var(--b);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none;user-select:none}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-scroll{flex:1;overflow-y:auto;padding:8px 12px}.sel-scroll .proc-img-wrap{max-height:none}.sel-scroll .proc-img{width:100%;height:auto;display:block}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
