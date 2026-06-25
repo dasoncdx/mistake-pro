@@ -571,7 +571,7 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/process-image")
 async def mistake_process_image(request: Request):
-    """展平图片，返回给前端做手动框选"""
+    """接收用户上传图片，完整保存原图，不做任何裁剪"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -588,11 +588,9 @@ async def mistake_process_image(request: Request):
     processed_dir = os.path.join(ROOT, "static", "processed")
     os.makedirs(processed_dir, exist_ok=True)
     try:
-        from image_utils import flatten_page
-        flat_bytes = flatten_page(img_bytes)
         out_path = os.path.join(processed_dir, fname)
         with open(out_path, "wb") as f:
-            f.write(flat_bytes)
+            f.write(img_bytes)
         return JSONResponse({
             "processed_image_url": f"/static/processed/{fname}"
         })
