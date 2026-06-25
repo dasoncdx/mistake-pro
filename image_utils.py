@@ -155,8 +155,8 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
 
 
 def clean_question_crop(image_bytes: bytes) -> bytes:
-    """对裁剪的题目区域做清理：蓝/红笔迹擦除 + 展平增强。
-    用 HSV 检测彩色墨迹 → inpaint → flatten+enhance 输出。
+    """擦除手写笔迹 + 展平增强。用笔画宽度区分手写和印刷体：
+    手写笔迹细（1~3px），印刷体粗（4+px）。与颜色无关。
     """
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
@@ -164,29 +164,25 @@ def clean_question_crop(image_bytes: bytes) -> bytes:
         if img is None:
             return image_bytes
 
-        # ── 蓝/红笔迹检测（HSV）──
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        # 转灰度，自适应二值化找所有深色笔迹
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                        cv2.THRESH_BINARY_INV, 11, 3)
 
-        lower_blue = np.array([90, 30, 30])
-        upper_blue = np.array([140, 255, 220])
-        blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+        # 开运算：细笔画（手写）被移除，粗笔画（印刷体/横线/框线）留下
+        kernel_open = np.ones((3, 3), np.uint8)
+        opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel_open, iterations=2)
 
-        lower_red1 = np.array([0, 30, 30])
-        upper_red1 = np.array([15, 255, 220])
-        lower_red2 = np.array([160, 30, 30])
-        upper_red2 = np.array([180, 255, 220])
-        red_mask = cv2.bitwise_or(
-            cv2.inRange(hsv, lower_red1, upper_red1),
-            cv2.inRange(hsv, lower_red2, upper_red2))
+        # 手写 mask = 二值化 - 开运算后（被移除的细笔画）
+        handwriting_mask = cv2.subtract(thresh, opened)
 
-        ink_mask = cv2.bitwise_or(blue_mask, red_mask)
-
+        # 膨胀 + 闭运算填补手写笔迹内部的空隙
         kernel = np.ones((5, 5), np.uint8)
-        ink_mask = cv2.dilate(ink_mask, kernel, iterations=1)
-        ink_mask = cv2.morphologyEx(ink_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        handwriting_mask = cv2.dilate(handwriting_mask, kernel, iterations=1)
+        handwriting_mask = cv2.morphologyEx(handwriting_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-        if cv2.countNonZero(ink_mask) > 0:
-            img = cv2.inpaint(img, ink_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+        if cv2.countNonZero(handwriting_mask) > 0:
+            img = cv2.inpaint(img, handwriting_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
 
         return _enhance(img, image_bytes)
     except Exception:
