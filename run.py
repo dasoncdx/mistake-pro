@@ -1283,7 +1283,7 @@ h1{{text-align:center;font-size:20px;margin-bottom:24px;color:#333}}
             pdf_bytes = WHTML(string=download_html).write_pdf()
             from fastapi.responses import Response
             return Response(content=pdf_bytes, media_type="application/pdf",
-                          headers={"Content-Disposition": 'attachment; filename="错题导出.pdf"'})
+                          headers={"Content-Disposition": "attachment; filename*=UTF-8''%E9%94%99%E9%A2%98%E5%AF%BC%E5%87%BA.pdf"})
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
