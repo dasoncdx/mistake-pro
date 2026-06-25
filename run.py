@@ -1026,11 +1026,20 @@ async def mistake_save_regions(request: Request):
         with open(crop_path, "wb") as f:
             f.write(orig_bytes)
 
-        # 一次 Vision API 调用：手写识别 + OCR + 内容类型 + 学科识别
+        # 缩小图片发给 Vision API 提速（长边 ≤ 768px，足够 OCR）
+        api_bytes = orig_bytes
+        cw, ch = cropped.size
+        if max(cw, ch) > 768:
+            scale = 768 / max(cw, ch)
+            small = cropped.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
+            sbuf = io.BytesIO()
+            small.save(sbuf, "JPEG", quality=30)
+            api_bytes = sbuf.getvalue()
+
         analysis = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
         try:
             gl = grade_label.get(grade, "")
-            analysis = analyze_crop(orig_bytes, subject, gl)
+            analysis = analyze_crop(api_bytes, subject, gl)
         except Exception as e:
             import traceback
             print(f"[save-regions] Vision API 失败: {e}")
