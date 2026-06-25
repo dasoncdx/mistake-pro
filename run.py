@@ -646,7 +646,7 @@ async function delSel(){
 function exportSel(){
   var ids=getSelIds();
   if(ids.length===0){alert('请先选择错题');return}
-  window.open('/mistake/export?ids='+ids.join(','),'_blank');
+  window.open('/mistake/export?ids='+ids.join(',')+'&download=1','_blank');
 }
 async function delFig(figId,btn){
   if(!confirm('删除此图案？'))return;
@@ -1026,8 +1026,8 @@ async def mistake_save_regions(request: Request):
         with open(crop_path, "wb") as f:
             f.write(orig_bytes)
 
-        # 一次 Vision API 调用：手写识别 + OCR + 内容类型
-        analysis = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text"}
+        # 一次 Vision API 调用：手写识别 + OCR + 内容类型 + 学科识别
+        analysis = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
         try:
             gl = grade_label.get(grade, "")
             analysis = analyze_crop(orig_bytes, subject, gl)
@@ -1035,6 +1035,23 @@ async def mistake_save_regions(request: Request):
             import traceback
             print(f"[save-regions] Vision API 失败: {e}")
             traceback.print_exc()
+
+        # 学科自动识别：Vision API 优先，启发式规则降级
+        detected = analysis.get("detected_subject", "")
+        valid_subjects = {"math", "english", "chinese"}
+        if detected not in valid_subjects:
+            from ai import _guess_subject
+            detected = _guess_subject(analysis.get("ocr_text", ""))
+        if detected in valid_subjects and detected != subject:
+            print(f"[save-regions] 学科自动纠正: {subject} -> {detected}")
+            # 迁移已保存的 crop 文件到新学科目录
+            new_crop_dir = os.path.join(ROOT, "saved", detected)
+            os.makedirs(new_crop_dir, exist_ok=True)
+            new_crop_path = os.path.join(new_crop_dir, crop_name)
+            os.rename(crop_path, new_crop_path)
+            crop_path = new_crop_path
+            crop_dir = new_crop_dir
+            subject = detected
 
         # 擦除手写 + 增强 → 清洁版
         hw_regions = analysis.get("handwriting_regions", [])
@@ -1188,9 +1205,9 @@ async def mistake_delete_figure(request: Request, figure_id: int):
     return JSONResponse({"ok": True})
 
 
-@app.get("/mistake/export", response_class=HTMLResponse)
+@app.get("/mistake/export")
 async def mistake_export(request: Request):
-    """导出选中错题为可打印的图文混编页面"""
+    """导出选中错题：?ids=1,2,3&download=1 返回PDF文件，否则返回HTML预览"""
     redir, ctx = _auth(request)
     if redir: return redir
     conn = ctx.get("conn")
@@ -1201,29 +1218,67 @@ async def mistake_export(request: Request):
     ids = [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
     if not ids:
         return HTMLResponse("无效的ID", 400)
+    want_download = request.query_params.get("download") == "1"
+
     from db import get_mistake, get_figures_for_mistake
+    import base64 as _b64
     cards = ""
     for mid in ids:
         m = get_mistake(conn, mid)
         if not m: continue
         text = (m.get("ocr_text") or m.get("original_problem") or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
         if text.startswith("IMAGE:"):
-            img_path = text[6:]
-            text = f'<img src="/{img_path}" style="max-width:100%;border-radius:8px;margin:8px 0">'
+            img_path = os.path.join(ROOT, text[6:])
+            if os.path.exists(img_path):
+                with open(img_path, "rb") as f:
+                    img_b64 = _b64.b64encode(f.read()).decode()
+                ext = os.path.splitext(img_path)[1].lower().lstrip(".")
+                mime = "image/jpeg" if ext in ("jpg","jpeg") else "image/png"
+                text = f'<img src="data:{mime};base64,{img_b64}" style="max-width:100%;border-radius:8px;margin:8px 0">'
         kp = m.get("knowledge_point","")
         dt = (m.get("created_at") or "")[:10]
-        et_map = {"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
-        et = et_map.get(m.get("error_type",""), "")
         figs = get_figures_for_mistake(conn, mid)
         figs_html = ""
         for i, f in enumerate(figs):
-            figs_html += f'<div style="text-align:center;margin:12px 0;"><img src="/{f["image_path"]}" style="max-width:100%;border-radius:8px"><div style="font-size:11px;color:#999;margin-top:4px;">{f.get("label","") or f"图{i+1}"}</div></div>'
+            fpath = os.path.join(ROOT, f["image_path"])
+            if os.path.exists(fpath):
+                with open(fpath, "rb") as ff:
+                    f_b64 = _b64.b64encode(ff.read()).decode()
+                figs_html += f'<div style="text-align:center;margin:12px 0;"><img src="data:image/jpeg;base64,{f_b64}" style="max-width:100%;border-radius:8px"><div style="font-size:11px;color:#999;margin-top:4px;">{f.get("label","") or f"图{i+1}"}</div></div>'
         cards += f'''<div class="exp-card">
-  <div class="exp-meta">{kp} · {et} · {dt}</div>
+  <div class="exp-meta">{kp} · {dt}</div>
   <div class="exp-text">{text}</div>
   {figs_html}
 </div>'''
-    html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错题导出打印</title>
+
+    html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>错题导出</title>
+<style>
+@page{{size:A4;margin:15mm}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:"WenQuanYi Micro Hei","PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.8;color:#222;background:#fff;max-width:800px;margin:0 auto;padding:20px}}
+.exp-card{{margin-bottom:20px;padding-bottom:18px;border-bottom:1px dashed #ddd;page-break-inside:avoid}}
+.exp-meta{{font-size:12px;color:#888;margin-bottom:8px}}
+.exp-text{{white-space:pre-wrap;word-break:break-word}}
+h1{{text-align:center;font-size:20px;margin-bottom:24px;color:#333}}
+@media print{{
+  body{{padding:15px;font-size:14px}}
+  .exp-card{{page-break-inside:avoid;margin-bottom:18px}}
+  h1{{font-size:18px}}
+}}
+</style></head><body><h1>错题导出</h1>{cards}</body></html>'''
+
+    if want_download:
+        try:
+            from weasyprint import HTML as WHTML
+            pdf_bytes = WHTML(string=html).write_pdf()
+            from fastapi.responses import Response
+            return Response(content=pdf_bytes, media_type="application/pdf",
+                          headers={"Content-Disposition": 'attachment; filename="错题导出.pdf"'})
+        except Exception as e:
+            return HTMLResponse(f"PDF生成失败: {e}", 500)
+
+    # HTML 预览模式
+    preview_html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错题导出打印</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.8;color:#222;background:#fff;padding:20px;max-width:800px;margin:0 auto}}
 .exp-card{{margin-bottom:24px;padding-bottom:20px;border-bottom:1px dashed #ddd}}
@@ -1235,32 +1290,18 @@ h1{{text-align:center;font-size:20px;margin-bottom:12px;color:#333}}
 .exp-btn-print{{background:#5B7FFF;color:#fff}}
 .exp-btn-share{{background:#f0f0f0;color:#333}}
 .exp-btn-dl{{background:#f0f0f0;color:#333}}
-@media print{{
-  body{{padding:15px;font-size:14px}}
-  .exp-card{{page-break-inside:avoid;margin-bottom:18px}}
-  h1{{font-size:18px}}
-  .exp-actions{{display:none!important}}
-}}
+@media print{{body{{padding:15px;font-size:14px}}.exp-card{{page-break-inside:avoid;margin-bottom:18px}}h1{{font-size:18px}}.exp-actions{{display:none!important}}}}
 </style></head><body>
 <h1>错题导出</h1>
-<div class="exp-actions" id="expActions">
+<div class="exp-actions">
   <button class="exp-btn exp-btn-print" onclick="window.print()">打印 / 另存PDF</button>
-  <button class="exp-btn exp-btn-share" id="btnShare" onclick="shareExport()">分享</button>
-  <button class="exp-btn exp-btn-dl" onclick="downloadHTML()">下载HTML</button>
+  <button class="exp-btn exp-btn-share" onclick="downloadPDF()">下载PDF</button>
 </div>
 {cards}
 <script>
-window.addEventListener('DOMContentLoaded',function(){{setTimeout(function(){{window.print()}},800)}});
-function shareExport(){{
-  if(navigator.share){{navigator.share({{title:'错题导出',text:'错题Pro导出'}})}}
-  else{{alert('当前浏览器不支持分享，可长按截图或用打印按钮另存PDF')}}
-}}
-function downloadHTML(){{
-  var blob=new Blob([document.documentElement.outerHTML],{{type:'text/html'}});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='错题导出.html';
-  document.body.appendChild(a);a.click();a.remove();
-}}
+function downloadPDF(){{window.location.search=window.location.search+'&download=1'}}
 </script></body></html>'''
+    return HTMLResponse(preview_html)
     return HTMLResponse(html)
 
 

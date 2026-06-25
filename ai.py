@@ -32,6 +32,27 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
+def _guess_subject(ocr_text: str) -> str:
+    """启发式学科判断（Vision API 的降级方案）。返回 'english'/'math'/'chinese'/''"""
+    if not ocr_text:
+        return ""
+    text = ocr_text.strip()
+    # 统计字符类型
+    latin = sum(1 for c in text if c.isascii() and c.isalpha())
+    chinese = sum(1 for c in text if '一' <= c <= '鿿')
+    math_syms = sum(1 for c in text if c in '∠⊥∥△□≌∽∴∵∈∪∩⊂⊃±×÷＝≠＜＞≤≥√∑∏∫∮∂∇π°′″')
+    total_chars = max(latin + chinese + math_syms, 1)
+    latin_ratio = latin / total_chars
+    chinese_ratio = chinese / total_chars
+    if latin_ratio > 0.6:
+        return "english"
+    if chinese_ratio > 0.7 and math_syms > 2:
+        return "math"
+    if math_syms > 5:
+        return "math"
+    return ""  # 无法判断，保持用户选择
+
+
 def call_llm(system_prompt: str, user_prompt: str, model: str = "deepseek-chat") -> str:
     """调用 DeepSeek API，返回文本响应"""
     client = _get_client()
@@ -79,8 +100,8 @@ def _parse_json(text: str) -> dict | list:
 
 
 def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> dict:
-    """一次 Vision API 调用：识别手写区域 + OCR提取文字 + 判断内容类型。
-    返回 {"handwriting_regions": [...], "ocr_text": "...", "content_type": "pure_text|text_with_figure|mainly_figure"}
+    """一次 Vision API 调用：识别手写区域 + OCR提取文字 + 判断内容类型 + 学科识别。
+    返回 {"handwriting_regions": [...], "ocr_text": "...", "content_type": "pure_text|text_with_figure|mainly_figure", "detected_subject": "math|english|chinese"}
     """
     import base64
     client = _get_vision_client()
@@ -110,8 +131,13 @@ def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> 
                     "- pure_text: 纯文字题目，没有图\n"
                     "- text_with_figure: 图文混合（有插图、示意图、几何图、图表等），文字仍是主体\n"
                     "- mainly_figure: 主要是图（漫画、复杂几何图形、图表），文字仅辅助\n\n"
+                    "任务4 - 判断学科：\n"
+                    "根据题目内容判断学科：math（数学）、english（英语）、chinese（语文）。\n"
+                    "英文单词多、有ABCD选项的英语题 → english；\n"
+                    "有运算符号(＋－×÷＝√∫)、几何图形、方程式 → math；\n"
+                    "古诗文、阅读理解、汉语拼音、成语 → chinese。\n\n"
                     "返回一个JSON对象（不要markdown代码块，不要其他文字）：\n"
-                    '{{"ocr_text":"完整题目文字","handwriting_regions":[{{"x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}}],"content_type":"pure_text"}}\n\n'
+                    '{{"ocr_text":"完整题目文字","handwriting_regions":[{{"x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}}],"content_type":"pure_text","detected_subject":"math"}}\n\n'
                     "坐标归一化到0-1范围，框紧紧贴合手写区域。没有手写则handwriting_regions为空数组[]。"
                 )},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
@@ -131,8 +157,9 @@ def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> 
             "handwriting_regions": regions,
             "ocr_text": (result.get("ocr_text") or "").strip(),
             "content_type": result.get("content_type", "pure_text"),
+            "detected_subject": result.get("detected_subject", ""),
         }
-    return {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text"}
+    return {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
 
 
 # ─── High-level Functions ───────────────────────────────────
