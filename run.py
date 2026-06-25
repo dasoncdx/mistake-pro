@@ -1000,13 +1000,15 @@ async def mistake_save_regions(request: Request):
     import time as _tm, hashlib as _hl
     from image_utils import erase_handwriting, enhance_image
     from ai import analyze_crop
+    from concurrent.futures import ThreadPoolExecutor
     crop_dir = os.path.join(ROOT, "saved", subject)
     os.makedirs(crop_dir, exist_ok=True)
 
     grade_label = {"grade_1":"一年级","grade_2":"二年级","grade_3":"三年级","grade_4":"四年级",
                    "grade_5":"五年级","grade_6":"六年级","grade_7":"初一","grade_8":"初二","grade_9":"初三"}
 
-    saved = 0
+    # Phase 1: crop all regions + vision API in parallel
+    pending = []
     for r in regions:
         x1 = max(0, int(r["x1"] * w))
         y1 = max(0, int(r["y1"] * h))
@@ -1021,20 +1023,36 @@ async def mistake_save_regions(request: Request):
         orig_bytes = buf.getvalue()
 
         ts = str(int(_tm.time() * 1000))
-        crop_name = f"crop_{ts}_{saved}.jpg"
+        crop_name = f"crop_{ts}_{len(pending)}.jpg"
         crop_path = os.path.join(crop_dir, crop_name)
         with open(crop_path, "wb") as f:
             f.write(orig_bytes)
+        pending.append({
+            "r": r, "orig_bytes": orig_bytes, "crop_path": crop_path,
+            "crop_name": crop_name, "ts": ts, "analysis": None
+        })
 
-        # 一次 Vision API 调用：手写识别 + OCR + 内容类型 + 学科识别
-        analysis = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
-        try:
-            gl = grade_label.get(grade, "")
-            analysis = analyze_crop(orig_bytes, subject, gl)
-        except Exception as e:
-            import traceback
-            print(f"[save-regions] Vision API 失败: {e}")
-            traceback.print_exc()
+    if pending:
+        gl = grade_label.get(grade, "")
+        def _call_vision(item):
+            try:
+                item["analysis"] = analyze_crop(item["orig_bytes"], subject, gl)
+            except Exception:
+                item["analysis"] = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
+            return item
+
+        with ThreadPoolExecutor(max_workers=min(len(pending), 5)) as executor:
+            pending = list(executor.map(_call_vision, pending))
+
+    # Phase 2: process results + save to DB
+    saved = 0
+    for item in pending:
+        r = item["r"]
+        orig_bytes = item["orig_bytes"]
+        crop_path = item["crop_path"]
+        crop_name = item["crop_name"]
+        ts = item["ts"]
+        analysis = item["analysis"] or {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text", "detected_subject": ""}
 
         # 学科自动识别：Vision API 优先，启发式规则降级
         detected = analysis.get("detected_subject", "")
@@ -1044,7 +1062,6 @@ async def mistake_save_regions(request: Request):
             detected = _guess_subject(analysis.get("ocr_text", ""))
         if detected in valid_subjects and detected != subject:
             print(f"[save-regions] 学科自动纠正: {subject} -> {detected}")
-            # 迁移已保存的 crop 文件到新学科目录
             new_crop_dir = os.path.join(ROOT, "saved", detected)
             os.makedirs(new_crop_dir, exist_ok=True)
             new_crop_path = os.path.join(new_crop_dir, crop_name)
@@ -1052,7 +1069,6 @@ async def mistake_save_regions(request: Request):
             crop_path = new_crop_path
             crop_dir = new_crop_dir
             subject = detected
-            # 自动创建对应学科错题本
             subs = _users[n].get("subjects", ["math"])
             if subject not in subs:
                 subs.append(subject)
@@ -1084,7 +1100,6 @@ async def mistake_save_regions(request: Request):
         content_type = analysis.get("content_type", "pure_text")
         crop_rel = f"saved/{subject}/{crop_name}"
 
-        # 根据内容类型决定 original_problem 存什么
         if content_type == "pure_text" and ocr_text:
             op = ocr_text
         else:
