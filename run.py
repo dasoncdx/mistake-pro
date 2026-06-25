@@ -878,10 +878,10 @@ async def mistake_process_image(request: Request):
         # 转为 RGB（处理 RGBA / P 模式）
         if img.mode in ('RGBA', 'P'):
             img = img.convert('RGB')
-        # 压缩保存，质量 85，目标 ≤ 2MB
+        # 压缩保存，目标 ≤ 2MB
         out_path = os.path.join(processed_dir, fname)
-        quality = 70
-        while quality >= 40:
+        quality = 55
+        while quality >= 30:
             buf = io.BytesIO()
             img.save(buf, 'JPEG', quality=quality)
             if buf.tell() <= 2 * 1024 * 1024:
@@ -1017,7 +1017,7 @@ async def mistake_save_regions(request: Request):
         cropped = img.crop((x1, y1, x2, y2))
         import io
         buf = io.BytesIO()
-        cropped.save(buf, "JPEG", quality=75)
+        cropped.save(buf, "JPEG", quality=55)
         orig_bytes = buf.getvalue()
 
         ts = str(int(_tm.time() * 1000))
@@ -1190,7 +1190,7 @@ async def mistake_crop_figure(request: Request, mistake_id: int):
         os.makedirs(fig_dir, exist_ok=True)
         fig_name = f"fig_{mistake_id}_{ts}.jpg"
         fig_path = os.path.join(fig_dir, fig_name)
-        cropped.save(fig_path, "JPEG", quality=70)
+        cropped.save(fig_path, "JPEG", quality=55)
     except Exception as e:
         return JSONResponse({"error":f"图片裁切失败：{e}"}, 500)
     label = form.get("label", "").strip() or f"图{ts[-4:]}"
