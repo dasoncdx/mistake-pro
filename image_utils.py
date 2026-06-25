@@ -143,10 +143,10 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
             return image_bytes
 
         # 膨胀 mask 确保覆盖边缘
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((7, 7), np.uint8)
         mask = cv2.dilate(mask, kernel, iterations=2)
 
-        result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+        result = cv2.inpaint(img, mask, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
 
         _, buf = cv2.imencode(".jpg", result, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes()

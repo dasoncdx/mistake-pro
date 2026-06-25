@@ -78,29 +78,41 @@ def _parse_json(text: str) -> dict | list:
     raise RuntimeError(f"无法解析JSON: {text[:200]}...")
 
 
-def detect_handwriting(image_bytes: bytes) -> list[dict]:
-    """用 Vision 模型识别图片中的手写笔迹区域，返回归一化坐标列表。"""
+def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> dict:
+    """一次 Vision API 调用：识别手写区域 + OCR提取文字 + 判断内容类型。
+    返回 {"handwriting_regions": [...], "ocr_text": "...", "content_type": "pure_text|text_with_figure|mainly_figure"}
+    """
     import base64
     client = _get_vision_client()
-    model = os.environ.get("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+    model = os.environ.get("VISION_MODEL", "qwen-vl-max")
     b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    subject_name = {"math": "数学", "english": "英语", "chinese": "语文"}.get(subject, subject)
 
     response = client.chat.completions.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=0.1,
         messages=[{
             "role": "user",
             "content": [
                 {"type": "text", "text": (
-                    "Identify ALL handwriting, pen marks, pencil writing, or student-written answers in this homework image. "
-                    "Handwriting = anything a student wrote by hand (answers, corrections, doodles, scratch work, fill-in-the-blank). "
-                    "Printed text (the original question text, lines, brackets, diagrams) is NOT handwriting. "
-                    "Return ONLY a JSON array of bounding boxes: [{\"x1\":0.1,\"y1\":0.2,\"x2\":0.3,\"y2\":0.4},...]. "
-                    "Coordinates must be normalized to 0-1 range (proportion of image width/height). "
-                    "Each box should tightly enclose one handwriting region. "
-                    "If there is NO handwriting at all, return exactly: []. "
-                    "Return ONLY the JSON array, no other text, no markdown fences."
+                    f"你是一位专业的教育OCR专家。请分析这张{grade}{subject_name}题目图片，完成三项任务：\n\n"
+                    "任务1 - 识别手写笔迹区域：\n"
+                    "找出学生手写的内容（答案、批注、涂改、草稿、填空处的笔迹）。手写体的特征：笔画粗细不一、排列不齐、字形不规则。\n"
+                    "印刷体（原题文字、横线___、括号、表格线、插图）不是手写，不要标记。\n\n"
+                    "任务2 - OCR提取题目原文：\n"
+                    "逐字识别图片中的印刷文字，保留横线___、括号()、【】、选项A.B.C.D.等结构要素。\n"
+                    "保留数学符号（∠⊥∥△□≌∽∴∵∈∪∩⊂⊃±×÷＝≠＜＞≤≥√∑∏∫∮∂∇）、分数、方程式。\n"
+                    "英语题目保留大小写、标点、拼写。\n"
+                    "排除学生手写答案和批改痕迹。\n\n"
+                    "任务3 - 判断内容类型：\n"
+                    "- pure_text: 纯文字题目，没有图\n"
+                    "- text_with_figure: 图文混合（有插图、示意图、几何图、图表等），文字仍是主体\n"
+                    "- mainly_figure: 主要是图（漫画、复杂几何图形、图表），文字仅辅助\n\n"
+                    "返回一个JSON对象（不要markdown代码块，不要其他文字）：\n"
+                    '{{"handwriting_regions":[{{"x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}}],"ocr_text":"完整题目文字","content_type":"pure_text"}}\n\n'
+                    "坐标归一化到0-1范围，框紧紧贴合手写区域。没有手写则handwriting_regions为空数组[]。"
                 )},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
             ]
@@ -109,9 +121,16 @@ def detect_handwriting(image_bytes: bytes) -> list[dict]:
 
     text = response.choices[0].message.content
     result = _parse_json(text)
-    if isinstance(result, list):
-        return [r for r in result if isinstance(r, dict) and all(k in r for k in ("x1","y1","x2","y2"))]
-    return []
+    if isinstance(result, dict):
+        regions = result.get("handwriting_regions", [])
+        if isinstance(regions, list):
+            regions = [r for r in regions if isinstance(r, dict) and all(k in r for k in ("x1","y1","x2","y2"))]
+        return {
+            "handwriting_regions": regions,
+            "ocr_text": (result.get("ocr_text") or "").strip(),
+            "content_type": result.get("content_type", "pure_text"),
+        }
+    return {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text"}
 
 
 # ─── High-level Functions ───────────────────────────────────

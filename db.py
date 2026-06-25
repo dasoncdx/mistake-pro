@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS mistakes (
     grade_level     TEXT NOT NULL,
     curriculum_ver  TEXT NOT NULL DEFAULT '人教版',
     created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    last_reviewed_at TEXT
+    last_reviewed_at TEXT,
+    ocr_text        TEXT,
+    crop_image_path TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_mistakes_pool ON mistakes(pool_status);
@@ -96,6 +98,16 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 );
 
 CREATE INDEX IF NOT EXISTS idx_kb_lookup ON knowledge_base(grade_level, subject, knowledge_point);
+
+CREATE TABLE IF NOT EXISTS figures (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    mistake_id   INTEGER NOT NULL REFERENCES mistakes(id) ON DELETE CASCADE,
+    image_path   TEXT NOT NULL,
+    label        TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_figures_mistake ON figures(mistake_id);
 """
 
 
@@ -116,10 +128,23 @@ def get_conn(student_name: str) -> sqlite3.Connection:
     return conn
 
 
+def migrate_schema(conn: sqlite3.Connection) -> None:
+    """幂等迁移：给旧数据库补新列和新表"""
+    migrations = [
+        "ALTER TABLE mistakes ADD COLUMN ocr_text TEXT",
+        "ALTER TABLE mistakes ADD COLUMN crop_image_path TEXT",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
 def init_db(student_name: str) -> None:
     """初始化数据库"""
     conn = get_conn(student_name)
     conn.executescript(SCHEMA)
+    migrate_schema(conn)
     conn.commit()
     conn.close()
 
@@ -130,7 +155,8 @@ def insert_mistake(conn: sqlite3.Connection, **kwargs) -> int:
     """插入错题，返回id"""
     fields = ['subject','original_problem','wrong_answer','correct_answer',
               'knowledge_point','error_type','error_analysis',
-              'pool_status','grade_level','curriculum_ver']
+              'pool_status','grade_level','curriculum_ver',
+              'ocr_text','crop_image_path']
     values = {k: kwargs[k] for k in fields if k in kwargs}
     cols = ', '.join(values.keys())
     placeholders = ', '.join('?' for _ in values)
@@ -166,6 +192,54 @@ def update_pool_status(conn: sqlite3.Connection, mistake_id: int, status: str) -
     conn.execute("UPDATE mistakes SET pool_status = ?, last_reviewed_at = datetime('now','localtime') WHERE id = ?",
                  (status, mistake_id))
     conn.commit()
+
+
+def update_mistake(conn: sqlite3.Connection, mistake_id: int, **kwargs) -> bool:
+    """更新错题字段，只更新提供的字段。返回是否成功"""
+    if not kwargs:
+        return False
+    set_clause = ', '.join(f"{k}=?" for k in kwargs)
+    values = list(kwargs.values()) + [mistake_id]
+    conn.execute(f"UPDATE mistakes SET {set_clause} WHERE id=?", values)
+    conn.commit()
+    return True
+
+
+def delete_mistake(conn: sqlite3.Connection, mistake_id: int) -> dict:
+    """删除错题，返回被删记录（用于清理图片文件）"""
+    m = get_mistake(conn, mistake_id)
+    if m:
+        conn.execute("DELETE FROM figures WHERE mistake_id=?", (mistake_id,))
+        conn.execute("DELETE FROM mistakes WHERE id=?", (mistake_id,))
+        conn.commit()
+    return m
+
+
+# ─── Figures CRUD ─────────────────────────────────────────
+
+def insert_figure(conn: sqlite3.Connection, **kwargs) -> int:
+    """插入图案子图，返回id"""
+    fields = ['mistake_id', 'image_path', 'label']
+    values = {k: kwargs[k] for k in fields if k in kwargs}
+    cols = ', '.join(values.keys())
+    placeholders = ', '.join('?' for _ in values)
+    cur = conn.execute(f"INSERT INTO figures ({cols}) VALUES ({placeholders})", list(values.values()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_figures_for_mistake(conn: sqlite3.Connection, mistake_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM figures WHERE mistake_id = ? ORDER BY id", (mistake_id,)).fetchall()]
+
+
+def delete_figure(conn: sqlite3.Connection, figure_id: int) -> dict:
+    row = conn.execute("SELECT * FROM figures WHERE id = ?", (figure_id,)).fetchone()
+    if row:
+        conn.execute("DELETE FROM figures WHERE id=?", (figure_id,))
+        conn.commit()
+        return dict(row)
+    return None
 
 
 # ─── Variants CRUD ──────────────────────────────────────────

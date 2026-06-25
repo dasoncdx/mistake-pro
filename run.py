@@ -566,6 +566,158 @@ function fp(){
 }
 function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}"""
 
+_JS_MISTAKES = r"""<script>
+var _origTexts={};
+function onTxtChange(id){
+  var ta=document.getElementById('txt-'+id), acts=document.getElementById('acts-'+id);
+  if(!ta||!acts)return;
+  var cur=ta.value, orig=_origTexts[id];
+  if(orig===undefined) _origTexts[id]=ta.defaultValue;
+  if(cur!==(_origTexts[id]!==undefined?_origTexts[id]:ta.defaultValue)){
+    acts.style.display='flex';
+  }else{
+    acts.style.display='none';
+  }
+}
+async function saveTxt(id){
+  var ta=document.getElementById('txt-'+id), hint=document.getElementById('hint-'+id), acts=document.getElementById('acts-'+id);
+  if(!ta)return;
+  var r=await fetch('/mistake/edit/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ocr_text:ta.value})});
+  if(r.ok){_origTexts[id]=ta.value;ta.defaultValue=ta.value;acts.style.display='none';hint.style.display='inline';setTimeout(function(){hint.style.display='none'},1500)}
+  else alert('保存失败')
+}
+function onChk(){
+  var bar=document.getElementById('batchBar'), cnt=document.getElementById('batchCount'), ids=getSelIds();
+  bar.style.display=ids.length>0?'flex':'none';
+  cnt.textContent='已选 '+ids.length+' 道';
+}
+function toggleAll(el){
+  document.querySelectorAll('.mcrd-check').forEach(function(c){c.checked=el.checked});
+  onChk();
+}
+function getSelIds(){
+  var ids=[];
+  document.querySelectorAll('.mcrd-check:checked').forEach(function(c){ids.push(parseInt(c.getAttribute('data-id')))});
+  return ids;
+}
+async function delMis(id){
+  if(!confirm('确定删除这道错题吗？'))return;
+  var r=await fetch('/mistake/delete/'+id,{method:'POST'});
+  if(r.ok){var card=document.getElementById('card-'+id);if(card)card.remove();onChk()}
+  else alert('删除失败')
+}
+async function delSel(){
+  var ids=getSelIds();
+  if(ids.length===0)return;
+  if(!confirm('确定删除已选的 '+ids.length+' 道错题吗？'))return;
+  for(var i=0;i<ids.length;i++){
+    await fetch('/mistake/delete/'+ids[i],{method:'POST'});
+    var card=document.getElementById('card-'+ids[i]);if(card)card.remove();
+  }
+  onChk();
+}
+function exportSel(){
+  var ids=getSelIds();
+  if(ids.length===0){alert('请先选择错题');return}
+  window.open('/mistake/export?ids='+ids.join(','),'_blank');
+}
+async function delFig(figId,btn){
+  if(!confirm('删除此图案？'))return;
+  var r=await fetch('/mistake/delete-figure/'+figId,{method:'POST'});
+  if(r.ok){var item=btn.closest('.fig-item');if(item)item.remove()}
+  else alert('删除失败')
+}
+
+// ---- figure cropping overlay ----
+var _figCropImg='', _figCropMid=0, _figDrawRect=null, _figDrawing=null, _figDragMode=null;
+
+function openFigCrop(mid){
+  _figCropMid=mid;
+  var img=document.getElementById('cimg-'+mid);
+  if(!img)return;
+  _figCropImg=img.src;
+  _figDrawRect=null;_figDrawing=null;_figDragMode=null;
+  var ov=document.createElement('div');ov.id='figOverlay';ov.className='fig-overlay';
+  ov.innerHTML='<div class="fig-topbar"><span class="fig-topbar-title">截取图案</span><button class="fig-close" onclick="closeFigCrop()">✕</button></div>'
+    +'<div class="fig-hint">手指拖动画框，框选需保留的示意图/几何图</div>'
+    +'<div class="fig-scroll"><div class="fig-draw-wrap" id="figDrawWrap">'
+    +'<img src="'+_figCropImg+'" class="fig-draw-img" id="figDrawImg">'
+    +'<div class="fig-draw-layer" id="figDrawLayer"></div>'
+    +'</div></div>'
+    +'<div class="fig-bottombar"><button class="btn" style="background:var(--c);border:1.5px solid var(--br);color:var(--ts);padding:10px 20px;border-radius:20px;font-size:14px;font-family:inherit;cursor:pointer" onclick="closeFigCrop()">取消</button><button class="btn btn-p" onclick="saveFigCrop()">保存图案</button></div>';
+  document.body.appendChild(ov);
+  setTimeout(bindFigDraw,100);
+}
+
+function closeFigCrop(){
+  var ov=document.getElementById('figOverlay');if(ov)ov.remove();
+}
+
+function bindFigDraw(){
+  var layer=document.getElementById('figDrawLayer');
+  if(!layer||layer._bound)return;
+  layer._bound=true;
+  layer.addEventListener('pointerdown',function(e){
+    if(_figDragMode)return;
+    if(e.target!==layer)return;
+    e.preventDefault();
+    var rect=layer.getBoundingClientRect();
+    _figDrawing={x1:e.clientX-rect.left,y1:e.clientY-rect.top};
+    _figDragMode='draw';
+  });
+  layer.addEventListener('pointermove',function(e){
+    if(_figDragMode!=='draw'||!_figDrawing)return;
+    e.preventDefault();
+    var rect=layer.getBoundingClientRect();
+    var x=e.clientX-rect.left, y=e.clientY-rect.top;
+    var rx=Math.min(_figDrawing.x1,x), ry=Math.min(_figDrawing.y1,y);
+    var rw=Math.abs(x-_figDrawing.x1), rh=Math.abs(y-_figDrawing.y1);
+    var tmp=document.getElementById('figDrawTmp');
+    if(!tmp){tmp=document.createElement('div');tmp.id='figDrawTmp';tmp.className='selbox selbox-tmp';layer.appendChild(tmp);}
+    tmp.style.left=rx+'px';tmp.style.top=ry+'px';
+    tmp.style.width=rw+'px';tmp.style.height=rh+'px';
+  });
+  layer.addEventListener('pointerup',function(e){
+    if(_figDragMode!=='draw'||!_figDrawing)return;
+    var rect=layer.getBoundingClientRect();
+    var x=e.clientX-rect.left, y=e.clientY-rect.top;
+    var dx=Math.abs(x-_figDrawing.x1), dy=Math.abs(y-_figDrawing.y1);
+    var tmp=document.getElementById('figDrawTmp');if(tmp)tmp.remove();
+    if(dx>20&&dy>20){
+      var img=document.getElementById('figDrawImg');
+      var rx=Math.min(_figDrawing.x1,x)/img.clientWidth, ry=Math.min(_figDrawing.y1,y)/img.clientHeight;
+      var rw=dx/img.clientWidth, rh=dy/img.clientHeight;
+      _figDrawRect={x1:rx,y1:ry,x2:rx+rw,y2:ry+rh};
+      var sel=document.getElementById('figDrawSel');
+      if(!sel){sel=document.createElement('div');sel.id='figDrawSel';sel.className='selbox';layer.appendChild(sel);}
+      sel.style.left=Math.min(_figDrawing.x1,x)+'px';
+      sel.style.top=Math.min(_figDrawing.y1,y)+'px';
+      sel.style.width=dx+'px';
+      sel.style.height=dy+'px';
+    }
+    _figDrawing=null;_figDragMode=null;
+  });
+}
+
+async function saveFigCrop(){
+  if(!_figDrawRect){alert('请先框选图案区域');return}
+  var d=new FormData();
+  d.append('x1',_figDrawRect.x1);d.append('y1',_figDrawRect.y1);
+  d.append('x2',_figDrawRect.x2);d.append('y2',_figDrawRect.y2);
+  var r=await fetch('/mistake/crop-figure/'+_figCropMid,{method:'POST',body:d});
+  if(r.ok){
+    var j=await r.json();
+    closeFigCrop();
+    var figs=document.getElementById('figs-'+_figCropMid);
+    if(figs){
+      var item=document.createElement('div');item.className='fig-item';
+      item.innerHTML='<img src="/'+j.image_path+'" class="fig-thumb"><span class="fig-label">'+(j.label||'图')+'</span><button class="fig-del" onclick="delFig('+j.figure_id+',this)">✕</button>';
+      figs.appendChild(item);
+    }
+  }else{alert('截取失败')}
+}
+</script>"""
+
 @app.get("/mistake/new", response_class=HTMLResponse)
 async def mistake_page(request: Request):
     redir, ctx = _auth(request)
@@ -753,12 +905,15 @@ async def mistake_save_regions(request: Request):
     except Exception:
         return JSONResponse({"error":"无法打开处理图片"}, 400)
 
-    # Crop, clean (erase handwriting), and save each region
+    # Crop, analyze (handwriting + OCR), erase, save each region
     import time as _tm, hashlib as _hl
     from image_utils import erase_handwriting, enhance_image
-    from ai import detect_handwriting
+    from ai import analyze_crop
     crop_dir = os.path.join(ROOT, "saved", subject)
     os.makedirs(crop_dir, exist_ok=True)
+
+    grade_label = {"grade_1":"一年级","grade_2":"二年级","grade_3":"三年级","grade_4":"四年级",
+                   "grade_5":"五年级","grade_6":"六年级","grade_7":"初一","grade_8":"初二","grade_9":"初三"}
 
     saved = 0
     for r in regions:
@@ -772,22 +927,47 @@ async def mistake_save_regions(request: Request):
         import io
         buf = io.BytesIO()
         cropped.save(buf, "JPEG", quality=95)
-        crop_bytes = buf.getvalue()
-
-        # AI 检测手写区域 → OpenCV inpaint 擦除 → 增强
-        try:
-            hw_regions = detect_handwriting(crop_bytes)
-            if hw_regions:
-                crop_bytes = erase_handwriting(crop_bytes, hw_regions)
-        except Exception:
-            pass  # AI 检测失败时保留原图，至少不丢题
-        clean_bytes = enhance_image(crop_bytes)
+        orig_bytes = buf.getvalue()
 
         ts = str(int(_tm.time() * 1000))
         crop_name = f"crop_{ts}_{saved}.jpg"
         crop_path = os.path.join(crop_dir, crop_name)
         with open(crop_path, "wb") as f:
+            f.write(orig_bytes)
+
+        # 一次 Vision API 调用：手写识别 + OCR + 内容类型
+        analysis = {"handwriting_regions": [], "ocr_text": "", "content_type": "pure_text"}
+        try:
+            gl = grade_label.get(grade, "")
+            analysis = analyze_crop(orig_bytes, subject, gl)
+        except Exception:
+            pass  # AI 失败不阻断保存
+
+        # 擦除手写 + 增强 → 清洁版
+        hw_regions = analysis.get("handwriting_regions", [])
+        try:
+            if hw_regions:
+                clean_bytes = erase_handwriting(orig_bytes, hw_regions)
+            else:
+                clean_bytes = orig_bytes
+        except Exception:
+            clean_bytes = orig_bytes
+        clean_bytes = enhance_image(clean_bytes)
+
+        clean_name = f"clean_{ts}_{saved}.jpg"
+        clean_path = os.path.join(crop_dir, clean_name)
+        with open(clean_path, "wb") as f:
             f.write(clean_bytes)
+
+        ocr_text = analysis.get("ocr_text", "")
+        content_type = analysis.get("content_type", "pure_text")
+        crop_rel = f"saved/{subject}/{crop_name}"
+
+        # 根据内容类型决定 original_problem 存什么
+        if content_type == "pure_text" and ocr_text:
+            op = ocr_text
+        else:
+            op = f"IMAGE:saved/{subject}/{clean_name}"
 
         qn = r.get("question_number", "")
         label = r.get("label", "")
@@ -796,14 +976,174 @@ async def mistake_save_regions(request: Request):
             from db import insert_mistake
             insert_mistake(conn,
                 subject=subject,
-                original_problem=f"IMAGE:saved/{subject}/{crop_name}",
+                original_problem=op,
                 wrong_answer="", correct_answer="",
                 knowledge_point="图片录入", error_type="thinking_error",
                 error_analysis=f"题号{qn}{label_str}，图片拍照录入，待诊断",
-                pool_status="active", grade_level=grade, curriculum_ver=curriculum)
+                pool_status="active", grade_level=grade, curriculum_ver=curriculum,
+                ocr_text=ocr_text or None,
+                crop_image_path=crop_rel)
         saved += 1
 
     return JSONResponse({"count": saved})
+
+
+@app.post("/mistake/edit/{mistake_id}")
+async def mistake_edit(request: Request, mistake_id: int):
+    """编辑错题文字"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    if not conn: return JSONResponse({"error":"数据库未连接"}, 500)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    updates = {}
+    for field in ["ocr_text", "knowledge_point", "error_type", "error_analysis", "correct_answer"]:
+        val = body.get(field)
+        if val is not None and isinstance(val, str):
+            updates[field] = val.strip()
+    if not updates:
+        return JSONResponse({"error":"没有要更新的字段"}, 400)
+    from db import update_mistake
+    update_mistake(conn, mistake_id, **updates)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/mistake/delete/{mistake_id}")
+async def mistake_delete(request: Request, mistake_id: int):
+    """删除错题 + 清理关联图片"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    if not conn: return JSONResponse({"error":"数据库未连接"}, 500)
+    from db import delete_mistake, get_figures_for_mistake
+    # 先收集图片路径
+    figures = get_figures_for_mistake(conn, mistake_id) if conn else []
+    m = delete_mistake(conn, mistake_id)
+    if m:
+        for fpath in [m.get("crop_image_path"), m.get("original_problem")]:
+            if fpath and fpath.startswith("IMAGE:"):
+                path = os.path.join(ROOT, fpath[6:])
+                if os.path.exists(path): os.remove(path)
+        for fig in figures:
+            fpath = fig.get("image_path", "")
+            if fpath:
+                path = os.path.join(ROOT, fpath)
+                if os.path.exists(path): os.remove(path)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/mistake/crop-figure/{mistake_id}")
+async def mistake_crop_figure(request: Request, mistake_id: int):
+    """从原图裁切保留图案（示意图/几何图等）"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    if not conn: return JSONResponse({"error":"数据库未连接"}, 500)
+    from db import get_mistake, insert_figure
+    m = get_mistake(conn, mistake_id)
+    if not m: return JSONResponse({"error":"错题不存在"}, 404)
+    crop_path = m.get("crop_image_path")
+    if not crop_path:
+        return JSONResponse({"error":"该错题没有原图"}, 400)
+    full = os.path.join(ROOT, crop_path)
+    if not os.path.exists(full):
+        return JSONResponse({"error":"原图文件已过期"}, 400)
+    form = await request.form()
+    x1 = float(form.get("x1", 0))
+    y1 = float(form.get("y1", 0))
+    x2 = float(form.get("x2", 0))
+    y2 = float(form.get("y2", 0))
+    if x2 <= x1 or y2 <= y1:
+        return JSONResponse({"error":"无效的框选区域"}, 400)
+    try:
+        from PIL import Image
+        img = Image.open(full)
+        w, h = img.size
+        cropped = img.crop((int(x1*w), int(y1*h), int(x2*w), int(y2*h)))
+        import time, io
+        ts = str(int(time.time() * 1000))
+        fig_dir = os.path.join(ROOT, "saved", m["subject"])
+        os.makedirs(fig_dir, exist_ok=True)
+        fig_name = f"fig_{mistake_id}_{ts}.jpg"
+        fig_path = os.path.join(fig_dir, fig_name)
+        cropped.save(fig_path, "JPEG", quality=90)
+    except Exception as e:
+        return JSONResponse({"error":f"图片裁切失败：{e}"}, 500)
+    label = form.get("label", "").strip() or f"图{ts[-4:]}"
+    fig_id = insert_figure(conn, mistake_id=mistake_id,
+                           image_path=f"saved/{m['subject']}/{fig_name}", label=label)
+    return JSONResponse({"ok": True, "figure_id": fig_id, "label": label,
+                         "image_path": f"saved/{m['subject']}/{fig_name}", "image_url": f"/saved/{m['subject']}/{fig_name}"})
+
+
+@app.post("/mistake/delete-figure/{figure_id}")
+async def mistake_delete_figure(request: Request, figure_id: int):
+    """删除单个子图"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    from db import delete_figure
+    fig = delete_figure(conn, figure_id)
+    if fig:
+        fpath = fig.get("image_path", "")
+        if fpath:
+            path = os.path.join(ROOT, fpath)
+            if os.path.exists(path): os.remove(path)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/mistake/export", response_class=HTMLResponse)
+async def mistake_export(request: Request):
+    """导出选中错题为可打印的图文混编页面"""
+    redir, ctx = _auth(request)
+    if redir: return redir
+    conn = ctx.get("conn")
+    if not conn: return HTMLResponse("数据库未连接", 500)
+    ids_param = request.query_params.get("ids", "")
+    if not ids_param:
+        return HTMLResponse("未选择错题", 400)
+    ids = [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
+    if not ids:
+        return HTMLResponse("无效的ID", 400)
+    from db import get_mistake, get_figures_for_mistake
+    cards = ""
+    for mid in ids:
+        m = get_mistake(conn, mid)
+        if not m: continue
+        text = (m.get("ocr_text") or m.get("original_problem") or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+        if text.startswith("IMAGE:"):
+            img_path = text[6:]
+            text = f'<img src="/{img_path}" style="max-width:100%;border-radius:8px;margin:8px 0">'
+        kp = m.get("knowledge_point","")
+        dt = (m.get("created_at") or "")[:10]
+        et_map = {"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
+        et = et_map.get(m.get("error_type",""), "")
+        figs = get_figures_for_mistake(conn, mid)
+        figs_html = ""
+        for i, f in enumerate(figs):
+            figs_html += f'<div style="text-align:center;margin:12px 0;"><img src="/{f["image_path"]}" style="max-width:100%;border-radius:8px"><div style="font-size:11px;color:#999;margin-top:4px;">{f.get("label","") or f"图{i+1}"}</div></div>'
+        cards += f'''<div class="exp-card">
+  <div class="exp-meta">{kp} · {et} · {dt}</div>
+  <div class="exp-text">{text}</div>
+  {figs_html}
+</div>'''
+    html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错题导出打印</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.8;color:#222;background:#fff;padding:20px;max-width:800px;margin:0 auto}}
+.exp-card{{margin-bottom:24px;padding-bottom:20px;border-bottom:1px dashed #ddd}}
+.exp-meta{{font-size:12px;color:#888;margin-bottom:8px}}
+.exp-text{{white-space:pre-wrap;word-break:break-word}}
+h1{{text-align:center;font-size:20px;margin-bottom:20px;color:#333}}
+@media print{{
+  body{{padding:15px;font-size:14px}}
+  .exp-card{{page-break-inside:avoid;margin-bottom:18px}}
+  h1{{font-size:18px}}
+}}
+</style></head><body><h1>错题导出</h1>{cards}<div style="text-align:center;margin-top:20px;"><button onclick="window.print()" style="padding:10px 24px;background:#5B7FFF;color:#fff;border:none;border-radius:20px;font-size:14px;cursor:pointer;font-family:inherit">打印</button></div></body></html>'''
+    return HTMLResponse(html)
 
 
 @app.post("/mistake/diagnose")
@@ -930,23 +1270,62 @@ async def mistakes_list(request: Request):
     if redir: return redir
     subject = request.query_params.get("subject", "")
     subject_label = SUBJECT_NAMES.get(subject, subject)
-    conn=ctx.get("conn"); mh=""
+    conn=ctx.get("conn"); cards=""; has_any=False
     if conn:
-        from db import list_mistakes
+        from db import list_mistakes, get_figures_for_mistake
         ms=list_mistakes(conn, subject=subject if subject else None, limit=200)
         em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
         for m in ms:
-            op = m["original_problem"]
-            if op.startswith("IMAGE:"):
-                img_path = op[6:]
-                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">图片</span><img src="/{img_path}" style="max-width:100%;border-radius:10px;max-height:200px;" alt="错题图片"></div>'
-            elif m.get("knowledge_point") in ("OCR录入", "图片录入"):
-                mh+=f'<div class="crd2" style="display:flex;align-items:flex-start;gap:10px;"><span class="tag" style="background:var(--c);color:var(--tw);flex-shrink:0;">录入</span><span style="font-size:14px;color:var(--t);line-height:1.6;">{op}</span></div>'
-            else:
-                ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
-                mh+=f'<div class="crd2"><span class="tag {ec}">{em.get(m["error_type"],"")}</span><span style="font-size:13px;color:var(--t);"> {op[:60]}</span></div>'
+            has_any=True
+            mid=m["id"]
+            ocr_text=(m.get("ocr_text") or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+            op=m["original_problem"]
+            is_img=op.startswith("IMAGE:")
+            display_img=op[6:] if is_img else ""
+            crop_img=m.get("crop_image_path") or ""
+            kp=m["knowledge_point"];et=em.get(m["error_type"],"")
+            ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
+            dt=m["created_at"][:10] if m.get("created_at") else ""
+
+            figs=get_figures_for_mistake(conn, mid)
+            figs_html=""
+            for fi in figs:
+                figs_html+=f'<div class="fig-item"><img src="/{fi["image_path"]}" class="fig-thumb"><span class="fig-label">{fi.get("label","") or "图"}</span><button class="fig-del" onclick="delFig({fi["id"]},this)">✕</button></div>'
+            text_value = m.get("ocr_text") or ""
+
+            cards+=f'''<div class="mcrd" id="card-{mid}">
+  <div class="mcrd-top">
+    <input type="checkbox" class="mcrd-check" data-id="{mid}" onchange="onChk()">
+    <span class="tag {ec}">{et}</span>
+    <span class="mcrd-kp">{kp}</span>
+    <span class="mcrd-date">{dt}</span>
+  </div>
+  <textarea class="mcrd-txa" id="txt-{mid}" oninput="onTxtChange({mid})">{text_value}</textarea>
+  <div class="mcrd-acts" id="acts-{mid}" style="display:none;">
+    <button class="mbtn mbtn-save" onclick="saveTxt({mid})">保存</button>
+    <span class="mbtn-hint" id="hint-{mid}">已修改</span>
+  </div>
+  {f'<div class="mcrd-img-wrap"><img src="/{crop_img}" class="mcrd-img" id="cimg-{mid}" onclick="openFigCrop({mid})"><div class="mcrd-img-label">📷 原图·截图案</div></div>' if crop_img else ''}
+  {f'<div class="mcrd-figs" id="figs-{mid}">{figs_html}</div>' if figs_html else f'<div class="mcrd-figs" id="figs-{mid}"></div>'}
+  <div class="mcrd-footer">
+    <button class="mbtn mbtn-del" onclick="delMis({mid})">删除</button>
+  </div>
+</div>'''
+
+    batch_bar=f'''<div class="batch-bar" id="batchBar" style="display:none">
+  <div class="batch-left">
+    <label class="batch-selall"><input type="checkbox" id="selectAll" onchange="toggleAll(this)"> 全选</label>
+    <span class="batch-count" id="batchCount">已选 0 道</span>
+  </div>
+  <div class="batch-right">
+    <button class="mbtn mbtn-exp" onclick="exportSel()">导出打印</button>
+    <button class="mbtn mbtn-del" onclick="delSel()">批量删除</button>
+  </div>
+</div>'''
+
     title=f"{subject_label}错题本" if subject else "错题回顾"
-    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{mh or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}</div>'
+    js=_JS_MISTAKES
+    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{batch_bar}</div>{js}'
     return HTMLResponse(_pg(body,"回顾"))
 
 # ─── 考点通 ────────────────────────────────────
@@ -1206,7 +1585,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}.mcrd{background:var(--w);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.mcrd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}.mcrd-check{width:18px;height:18px;accent-color:var(--b);cursor:pointer;flex-shrink:0}.mcrd-kp{flex:1;font-size:14px;font-weight:600;color:var(--t)}.mcrd-date{font-size:11px;color:var(--ts)}.mcrd-txa{width:100%;min-height:80px;font-size:14px;line-height:1.7;color:var(--t);border:1.5px solid var(--br);border-radius:10px;padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:inherit;background:var(--w)}.mcrd-txa:focus{outline:none;border-color:var(--b);box-shadow:0 0 0 3px rgba(91,127,255,.08)}.mcrd-acts{display:flex;align-items:center;gap:8px;margin-top:8px}.mbtn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;transition:opacity .15s}.mbtn:active{opacity:.8}.mbtn-save{background:var(--b);color:#FFF}.mbtn-del{background:var(--rb);color:var(--r)}.mbtn-exp{background:var(--b);color:#FFF}.mbtn-hint{font-size:12px;color:var(--a);display:none}.mcrd-img-wrap{position:relative;margin-top:10px}.mcrd-img{width:100%;border-radius:10px;cursor:pointer;border:1px solid var(--br)}.mcrd-img-label{text-align:center;font-size:11px;color:var(--ts);margin-top:4px}.mcrd-figs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.fig-item{position:relative;width:80px;text-align:center}.fig-thumb{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--br)}.fig-label{display:block;font-size:10px;color:var(--ts);margin-top:2px}.fig-del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#E04050;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}.mcrd-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.04)}.batch-bar{position:sticky;bottom:0;z-index:100;background:var(--w);border-radius:14px 14px 0 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}.batch-left{display:flex;align-items:center;gap:10px}.batch-right{display:flex;gap:8px}.batch-selall{font-size:13px;color:var(--t);cursor:pointer;display:flex;align-items:center;gap:4px}.batch-selall input{accent-color:var(--b)}.batch-count{font-size:13px;color:var(--ts);font-weight:600}.fig-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.fig-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.fig-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.fig-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.fig-scroll{flex:1;overflow-y:auto;padding:4px 8px}.fig-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,0,0,.06)}.fig-draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.fig-draw-img{display:block;width:100%;height:auto;pointer-events:none}.fig-draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.fig-hint{text-align:center;font-size:12px;color:var(--ts);padding:4px 12px}@media print{.nb,.mcrd-top,.mcrd-acts,.mcrd-footer,.batch-bar,.mcrd-check{display:none!important}.mcrd{box-shadow:none;border-bottom:1px solid #ccc;border-radius:0;page-break-inside:avoid;margin-bottom:16px;padding:8px 0}.mcrd-txa{border:none;resize:none;min-height:auto;padding:0}}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
