@@ -1262,7 +1262,9 @@ async def mistake_export(request: Request):
   {figs_html}
 </div>'''
 
-    export_html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>错题导出</title>
+    if want_download:
+        try:
+            download_html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>错题导出</title>
 <style>
 @page{{size:A4;margin:15mm}}
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -1277,11 +1279,8 @@ h1{{text-align:center;font-size:20px;margin-bottom:24px;color:#333}}
   h1{{font-size:18px}}
 }}
 </style></head><body><h1>错题导出</h1>{cards}</body></html>'''
-
-    if want_download:
-        try:
             from weasyprint import HTML as WHTML
-            pdf_bytes = WHTML(string=export_html).write_pdf()
+            pdf_bytes = WHTML(string=download_html).write_pdf()
             from fastapi.responses import Response
             return Response(content=pdf_bytes, media_type="application/pdf",
                           headers={"Content-Disposition": 'attachment; filename="错题导出.pdf"'})
