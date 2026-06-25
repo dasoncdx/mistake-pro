@@ -538,35 +538,6 @@ async def mistake_process_image(request: Request):
         return JSONResponse({"error":f"图片处理失败：{e}"}, 500)
 
 
-@app.post("/mistake/ocr")
-async def mistake_ocr(request: Request):
-    """Pure OCR - extract clean questions from photo"""
-    redir, ctx = _auth(request)
-    if redir: return redir
-    form = await request.form()
-    photo = form.get("photo")
-    if not photo or not hasattr(photo, 'filename') or not photo.filename:
-        return JSONResponse({"error":"请上传图片"}, 400)
-    img_bytes = await photo.read()
-    if len(img_bytes) < 100:
-        return JSONResponse({"error":"图片文件太小或损坏"}, 400)
-    pf = ctx["profile"]
-    grade = pf.get("grade_level", "grade_4")
-    subject = form.get("subject", "math")
-    ext = os.path.splitext(photo.filename)[1].lower()
-    mime_map = {"png":"image/png","jpg":"image/jpeg","jpeg":"image/jpeg","gif":"image/gif","webp":"image/webp"}
-    mime_type = mime_map.get(ext, "image/jpeg")
-    try:
-        from ai import pure_ocr_from_bytes
-        questions = pure_ocr_from_bytes(img_bytes, grade, mime_type, subject)
-        return JSONResponse({"questions": questions})
-    except Exception as e:
-        msg = str(e)
-        if "VISION_API_KEY" in msg or "Vision API" in msg:
-            return JSONResponse({"error":"OCR服务未配置：缺少 VISION_API_KEY 环境变量，请在 Zeabur 控制台添加"}, 500)
-        return JSONResponse({"error":f"OCR识别失败：{msg}"}, 500)
-
-
 @app.post("/mistake/save")
 async def mistake_save(request: Request):
     """Save selected questions as clean text files + save to DB for 错题本"""

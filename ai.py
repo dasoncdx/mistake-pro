@@ -6,7 +6,6 @@
 import json
 import os
 import re
-import base64
 from openai import OpenAI
 
 from prompts import (
@@ -14,7 +13,6 @@ from prompts import (
     diagnosis_prompt,
     variant_gen_prompt,
     answer_check_prompt,
-    ocr_diagnosis_prompt,
 )
 
 
@@ -26,35 +24,13 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
-def _get_vision_client() -> OpenAI:
-    """Get a client for vision/OCR calls.
-    DeepSeek官方API不支持图片输入，需使用SiliconFlow等第三方Vision API。
-    注册 https://cloud.siliconflow.cn 获取免费API Key（新用户送10M tokens）。
-    """
-    api_key = os.environ.get("VISION_API_KEY")
-    if not api_key or "your-siliconflow-key" in api_key:
-        raise RuntimeError(
-            "OCR识别需要Vision API Key。DeepSeek官方不支持图片识别，请：\n"
-            "1. 访问 https://cloud.siliconflow.cn 注册账号\n"
-            "2. 获取API Key\n"
-            "3. 在 .env 中设置 VISION_API_KEY=你的key\n"
-            "（新用户免费送10M tokens，够用很久）"
-        )
-    base_url = os.environ.get("VISION_BASE_URL", "https://api.siliconflow.cn/v1")
-    return OpenAI(api_key=api_key, base_url=base_url)
-
-
-def _get_vision_model() -> str:
-    return os.environ.get("VISION_MODEL", "deepseek-ai/deepseek-vl2")
-
-
 def call_llm(system_prompt: str, user_prompt: str, model: str = "deepseek-chat") -> str:
     """调用 DeepSeek API，返回文本响应"""
     client = _get_client()
     response = client.chat.completions.create(
         model=model,
         max_tokens=2048,
-        temperature=0.3,  # 低温度保证JSON输出稳定
+        temperature=0.3,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -73,14 +49,12 @@ def _parse_json(text: str) -> dict | list:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Try json-repair for malformed/truncated JSON
     try:
         from json_repair import repair_json
         repaired = repair_json(text)
         return json.loads(repaired)
     except Exception:
         pass
-    # Last resort: regex extraction
     if text.startswith("{"):
         match = re.search(r"\{.*\}", text, re.DOTALL)
     elif text.startswith("["):
@@ -163,185 +137,3 @@ def check_answer(problem: str, correct_answer: str, student_answer: str,
         except Exception as e:
             if attempt == 2:
                 raise RuntimeError(f"批改失败（重试3次后）: {e}")
-
-
-def ocr_and_diagnose(image_path: str, grade_level: str,
-                     curriculum: str = "人教版") -> dict:
-    """OCR + 诊断（使用Vision模型）"""
-    client = _get_vision_client()
-    model = _get_vision_model()
-
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode("utf-8")
-
-    ext = os.path.splitext(image_path)[1].lower()
-    mime_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                "gif": "image/gif", "webp": "image/webp"}
-    media_type = mime_map.get(ext, "image/png")
-
-    prompt_text = ocr_diagnosis_prompt(grade_level, curriculum)
-
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=2048,
-                temperature=0.3,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {
-                            "url": f"data:{media_type};base64,{image_data}"
-                        }},
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }],
-            )
-            result = _parse_json(response.choices[0].message.content)
-            for key in ["ocr_problem", "ocr_student_answer", "knowledge_point",
-                        "error_type", "error_analysis", "correct_answer"]:
-                if key not in result:
-                    raise KeyError(f"Missing key: {key}")
-            return result
-        except Exception as e:
-            if attempt == 2:
-                raise RuntimeError(f"OCR诊断失败（重试3次后）: {e}")
-
-
-def _compress_image(image_bytes: bytes, max_size: int = 1500, quality: int = 75) -> tuple[bytes, str]:
-    """Compress and resize image for vision API. Returns (compressed_bytes, mime_type)."""
-    try:
-        from PIL import Image
-        import io
-        img = Image.open(io.BytesIO(image_bytes))
-        fmt = img.format or "JPEG"
-        if max(img.size) > max_size:
-            img.thumbnail((max_size, max_size))
-        buf = io.BytesIO()
-        img.save(buf, format=fmt, quality=quality)
-        mime = f"image/{fmt.lower()}"
-        return buf.getvalue(), mime
-    except Exception:
-        return image_bytes, "image/jpeg"
-
-
-def pure_ocr_from_bytes(image_bytes: bytes, grade_level: str, mime_type: str = "image/jpeg",
-                        subject: str = "数学") -> list[dict]:
-    """Pure OCR extraction from image bytes. Returns list of question objects.
-    No diagnosis - just text extraction and segmentation."""
-    from prompts import pure_ocr_prompt
-    client = _get_vision_client()
-    model = _get_vision_model()
-    compressed_bytes, mime_type = _compress_image(image_bytes)
-    img_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
-    prompt_text = pure_ocr_prompt(grade_level, subject)
-
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=4096,
-                temperature=0.1,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}},
-                        {"type": "text", "text": prompt_text},
-                    ]
-                }],
-            )
-            result = _parse_json(response.choices[0].message.content)
-            if not isinstance(result, list):
-                raise ValueError("Expected JSON array of questions")
-            return result
-        except Exception as e:
-            if attempt == 2:
-                raise RuntimeError(f"OCR识别失败（重试3次后）: {e}")
-
-
-def analyze_homework(image_bytes: bytes, grade_level: str,
-                     subject: str = "数学") -> dict:
-    """单次Vision API调用，分析作业图片结构。
-    返回: {
-        "handwriting_regions": [{x1,y1,x2,y2}],  # 手写区域，比例坐标
-        "question_regions": [{question_number, label, x1,y1,x2,y2}]  # 题目区域
-    }
-    """
-    client = _get_vision_client()
-    model = _get_vision_model()
-    compressed_bytes, mime_type = _compress_image(image_bytes)
-    img_b64 = base64.b64encode(compressed_bytes).decode("utf-8")
-
-    prompt = f"""你是一位专业的试卷版面分析专家。请仔细分析这张{grade_level}{subject}作业照片的版面结构。
-
-这张照片是一张试卷/作业，上面有多道题目。你的任务分两步：
-
-=== 第一步：找手写区域 ===
-找出所有学生手写答案和老师红笔批改痕迹的位置。手写区域要略大于实际笔迹（多扩展5%），确保擦除能完全覆盖。
-
-=== 第二步：划分题目区域 ===
-仔细观察图片，找出所有独立的题目。每道题通常有以下特征：
-- 有题号标识（如"1"、"2"、"三-1"等数字或编号）
-- 包含题目描述文字
-- 可能有填空横线（____）、括号（）、选项（A/B/C/D）
-- 题目之间通常有自然间隔
-
-记住：每一道有独立题号的题目都是一个独立区域。请仔细扫描整个页面，不要遗漏任何题目。
-
-=== 坐标规范 ===
-- x1,y1 是区域左上角，x2,y2 是区域右下角
-- 所有值都是占图片宽高的比例（0.0 ~ 1.0，如 x1=0.05 表示从图片左边5%处开始）
-- 题目区域的 x1 通常接近 0.05（左边距），x2 通常接近 0.95（右边距）
-- 题目区域的高度(y2-y1)通常占图片高度的 5%-15%
-- 相邻题目区域上下紧密排列，从上往下依次编号
-
-=== 输出格式 ===
-只返回JSON，不要任何其他文字：
-{{
-  "handwriting_regions": [
-    {{"x1": 0.15, "y1": 0.35, "x2": 0.6, "y2": 0.42}}
-  ],
-  "question_regions": [
-    {{"question_number": "1", "label": "", "x1": 0.05, "y1": 0.48, "x2": 0.95, "y2": 0.60}},
-    {{"question_number": "2", "label": "", "x1": 0.05, "y1": 0.60, "x2": 0.95, "y2": 0.73}}
-  ]
-}}
-
-重要提示：
-- 手写区域和题目区域都按实际情况返回，有空就写空数组[]
-- question_number 必须保留原题的题号格式
-- 一定要把图片从上到下仔细看一遍，确认有多少道题
-- 题目区域之间可以有小间隙（y1/y2之间的gap），但每个区域内必须完整包含该题的所有文字"""
-
-
-    last_error = None
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=4096,
-                temperature=0.1,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {
-                            "url": f"data:{mime_type};base64,{img_b64}"
-                        }},
-                        {"type": "text", "text": prompt},
-                    ],
-                }],
-            )
-            result = _parse_json(response.choices[0].message.content)
-            if not isinstance(result, dict):
-                raise ValueError("Expected JSON object")
-            result.setdefault("handwriting_regions", [])
-            result.setdefault("question_regions", [])
-            return result
-        except Exception as e:
-            last_error = e
-            if attempt == 2:
-                msg = str(e)
-                if "balance" in msg.lower() or "insufficient" in msg.lower():
-                    raise RuntimeError("Vision API 账户余额不足，请前往 https://cloud.siliconflow.cn 充值")
-                # 失败时返回空结果，不影响主流程
-                return {"handwriting_regions": [], "question_regions": []}
