@@ -1217,7 +1217,7 @@ async def mistake_delete_figure(request: Request, figure_id: int):
 
 
 @app.get("/mistake/export")
-async def mistake_export(request: Request):
+def mistake_export(request: Request):
     """导出选中错题：?ids=1,2,3&download=1 返回PDF文件，否则返回HTML预览"""
     redir, ctx = _auth(request)
     if redir: return redir
