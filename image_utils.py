@@ -203,9 +203,9 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
                 y2 = int(box['y2'] * h)
                 region_h = y2 - y1
 
-                # 大块（>10% 页面）再细分
-                if region_h > h * 0.10:
-                    sub_count = max(2, int(region_h / (h * 0.07)))
+                # 大块（>13% 页面）再细分
+                if region_h > h * 0.13:
+                    sub_count = max(2, int(region_h / (h * 0.10)))
                     sub_h = region_h / sub_count
                     for j in range(sub_count):
                         sy1 = int(y1 + j * sub_h)
@@ -217,8 +217,23 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
         else:
             raw_regions = []
 
-        # 如果版面检测结果不够，用网格兜底
-        if len(raw_regions) < 5:
+        # PaddleOCR 结果可用，就用它（合并小碎片后）；否则用网格兜底
+        if len(raw_regions) >= 3:
+            # 只合并小碎片：gap 小 AND 至少一方是 tiny region
+            raw_regions.sort(key=lambda r: r[0])
+            merged = [raw_regions[0]]
+            for y1, y2 in raw_regions[1:]:
+                prev_y1, prev_y2 = merged[-1]
+                gap = y1 - prev_y2
+                prev_h = prev_y2 - prev_y1
+                cur_h = y2 - y1
+                tiny = h * 0.05
+                if gap < h * 0.02 and (prev_h < tiny or cur_h < tiny):
+                    merged[-1] = (prev_y1, max(prev_y2, y2))
+                else:
+                    merged.append((y1, y2))
+            raw_regions = merged
+        else:
             # 投影法找内容区域
             _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             row_text = np.sum(binary, axis=1) / 255 / w
@@ -242,8 +257,8 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
                 top, bottom = 0, h
                 content_h = h
 
-            target_h = h * 0.07
-            target_count = max(12, int(content_h / target_h))
+            target_h = h * 0.13
+            target_count = max(5, min(10, int(content_h / target_h)))
             grid_h = content_h / target_count
             for i in range(target_count):
                 y1 = int(top + i * grid_h)
@@ -256,10 +271,20 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
         final_regions = []
         for y1, y2 in raw_regions:
             if final_regions and y1 < final_regions[-1][1]:
-                # 重叠则合并
                 final_regions[-1] = (final_regions[-1][0], max(final_regions[-1][1], y2))
             else:
                 final_regions.append((y1, y2))
+
+        # 最终兜底：大块（>15%）再分一刀
+        split_regions = []
+        for y1, y2 in final_regions:
+            if y2 - y1 > h * 0.15:
+                mid = (y1 + y2) // 2
+                split_regions.append((y1, mid))
+                split_regions.append((mid, y2))
+            else:
+                split_regions.append((y1, y2))
+        final_regions = split_regions
 
         # 生成输出
         regions = []
