@@ -568,6 +568,7 @@ function esc(s){var d=document.createElement('div');d.textContent=s||'';return d
 
 _JS_MISTAKES = r"""<script>
 var _origTexts={};
+var _selAll=false;
 function onTxtChange(id){
   var ta=document.getElementById('txt-'+id), acts=document.getElementById('acts-'+id);
   if(!ta||!acts)return;
@@ -587,18 +588,44 @@ async function saveTxt(id){
   else alert('保存失败')
 }
 function onChk(){
+  _selAll=false;document.getElementById('selectAll').checked=false;
   var bar=document.getElementById('batchBar'), cnt=document.getElementById('batchCount'), ids=getSelIds();
   bar.style.display=ids.length>0?'flex':'none';
   cnt.textContent='已选 '+ids.length+' 道';
 }
 function toggleAll(el){
+  _selAll=el.checked;
   document.querySelectorAll('.mcrd-check').forEach(function(c){c.checked=el.checked});
   onChk();
 }
 function getSelIds(){
+  if(_selAll){
+    var span=document.getElementById('allFilteredIds');
+    if(span){
+      try{var ids=JSON.parse(span.getAttribute('data-ids'));return ids;}catch(e){}
+    }
+  }
   var ids=[];
   document.querySelectorAll('.mcrd-check:checked').forEach(function(c){ids.push(parseInt(c.getAttribute('data-id')))});
   return ids;
+}
+function applyDateFilter(){
+  var from=document.getElementById('dateFrom').value, to=document.getElementById('dateTo').value;
+  var url=new URL(location);
+  if(from) url.searchParams.set('date_from',from); else url.searchParams.delete('date_from');
+  if(to) url.searchParams.set('date_to',to); else url.searchParams.delete('date_to');
+  url.searchParams.delete('page');
+  location.href=url;
+}
+function clearDateFilter(){
+  var url=new URL(location);
+  url.searchParams.delete('date_from');url.searchParams.delete('date_to');url.searchParams.delete('page');
+  location.href=url;
+}
+function goPage(n){
+  var url=new URL(location);
+  url.searchParams.set('page',n);
+  location.href=url;
 }
 async function delMis(id){
   if(!confirm('确定删除这道错题吗？'))return;
@@ -633,9 +660,11 @@ var _figCropImg='', _figCropMid=0, _figDrawRect=null, _figDrawing=null, _figDrag
 
 function openFigCrop(mid){
   _figCropMid=mid;
-  var img=document.getElementById('cimg-'+mid);
-  if(!img)return;
-  _figCropImg=img.src;
+  var card=document.getElementById('card-'+mid);
+  if(!card)return;
+  var cropPath=card.getAttribute('data-crop');
+  if(!cropPath)return;
+  _figCropImg='/'+cropPath;
   _figDrawRect=null;_figDrawing=null;_figDragMode=null;
   var ov=document.createElement('div');ov.id='figOverlay';ov.className='fig-overlay';
   ov.innerHTML='<div class="fig-topbar"><span class="fig-topbar-title">截取图案</span><button class="fig-close" onclick="closeFigCrop()">✕</button></div>'
@@ -657,45 +686,107 @@ function bindFigDraw(){
   var layer=document.getElementById('figDrawLayer');
   if(!layer||layer._bound)return;
   layer._bound=true;
+
+  function figImgToNorm(px,py){
+    var img=document.getElementById('figDrawImg');
+    return {x:px/img.clientWidth, y:py/img.clientHeight};
+  }
+  function figNormToImg(nx,ny){
+    var img=document.getElementById('figDrawImg');
+    return {x:nx*img.clientWidth, y:ny*img.clientHeight};
+  }
+  function clamp(v){return Math.max(0,Math.min(1,v));}
+
+  function getLayerOff(e){
+    var r=layer.getBoundingClientRect();
+    return {x:e.clientX-r.left, y:e.clientY-r.top};
+  }
+
+  function renderFigSel(){
+    if(!_figDrawRect)return;
+    var sel=document.getElementById('figDrawSel');
+    var p1=figNormToImg(_figDrawRect.x1,_figDrawRect.y1);
+    var p2=figNormToImg(_figDrawRect.x2,_figDrawRect.y2);
+    if(!sel){
+      sel=document.createElement('div');sel.id='figDrawSel';sel.className='selbox';
+      sel.innerHTML='<div class="shandle sh-tl" data-corner="tl"></div><div class="shandle sh-tr" data-corner="tr"></div><div class="shandle sh-bl" data-corner="bl"></div><div class="shandle sh-br" data-corner="br"></div>';
+      sel.addEventListener('pointerdown',function(e){
+        e.stopPropagation();e.preventDefault();
+        var corner=e.target.getAttribute('data-corner');
+        if(corner){_figDragMode='resize';_figDragTarget={sel:_figDrawRect,corner:corner};}
+        else if(e.target===sel||sel.contains(e.target)){
+          _figDragMode='move';
+          var off=getLayerOff(e);
+          _figDragTarget={sel:_figDrawRect,startX:off.x,startY:off.y,origX1:_figDrawRect.x1,origY1:_figDrawRect.y1,origX2:_figDrawRect.x2,origY2:_figDrawRect.y2};
+        }
+      });
+      layer.appendChild(sel);
+    }
+    sel.style.left=Math.min(p1.x,p2.x)+'px';
+    sel.style.top=Math.min(p1.y,p2.y)+'px';
+    sel.style.width=Math.max(20,Math.abs(p2.x-p1.x))+'px';
+    sel.style.height=Math.max(20,Math.abs(p2.y-p1.y))+'px';
+    sel.style.display='block';
+  }
+
   layer.addEventListener('pointerdown',function(e){
     if(_figDragMode)return;
     if(e.target!==layer)return;
     e.preventDefault();
-    var rect=layer.getBoundingClientRect();
-    _figDrawing={x1:e.clientX-rect.left,y1:e.clientY-rect.top};
+    var off=getLayerOff(e);
+    _figDrawing={x1:off.x,y1:off.y};
     _figDragMode='draw';
   });
+
   layer.addEventListener('pointermove',function(e){
-    if(_figDragMode!=='draw'||!_figDrawing)return;
+    if(!_figDragMode)return;
     e.preventDefault();
-    var rect=layer.getBoundingClientRect();
-    var x=e.clientX-rect.left, y=e.clientY-rect.top;
-    var rx=Math.min(_figDrawing.x1,x), ry=Math.min(_figDrawing.y1,y);
-    var rw=Math.abs(x-_figDrawing.x1), rh=Math.abs(y-_figDrawing.y1);
-    var tmp=document.getElementById('figDrawTmp');
-    if(!tmp){tmp=document.createElement('div');tmp.id='figDrawTmp';tmp.className='selbox selbox-tmp';layer.appendChild(tmp);}
-    tmp.style.left=rx+'px';tmp.style.top=ry+'px';
-    tmp.style.width=rw+'px';tmp.style.height=rh+'px';
-  });
-  layer.addEventListener('pointerup',function(e){
-    if(_figDragMode!=='draw'||!_figDrawing)return;
-    var rect=layer.getBoundingClientRect();
-    var x=e.clientX-rect.left, y=e.clientY-rect.top;
-    var dx=Math.abs(x-_figDrawing.x1), dy=Math.abs(y-_figDrawing.y1);
-    var tmp=document.getElementById('figDrawTmp');if(tmp)tmp.remove();
-    if(dx>20&&dy>20){
-      var img=document.getElementById('figDrawImg');
-      var rx=Math.min(_figDrawing.x1,x)/img.clientWidth, ry=Math.min(_figDrawing.y1,y)/img.clientHeight;
-      var rw=dx/img.clientWidth, rh=dy/img.clientHeight;
-      _figDrawRect={x1:rx,y1:ry,x2:rx+rw,y2:ry+rh};
-      var sel=document.getElementById('figDrawSel');
-      if(!sel){sel=document.createElement('div');sel.id='figDrawSel';sel.className='selbox';layer.appendChild(sel);}
-      sel.style.left=Math.min(_figDrawing.x1,x)+'px';
-      sel.style.top=Math.min(_figDrawing.y1,y)+'px';
-      sel.style.width=dx+'px';
-      sel.style.height=dy+'px';
+    var off=getLayerOff(e);
+    if(_figDragMode==='draw'){
+      if(!_figDrawing)return;
+      var rx=Math.min(_figDrawing.x1,off.x), ry=Math.min(_figDrawing.y1,off.y);
+      var rw=Math.abs(off.x-_figDrawing.x1), rh=Math.abs(off.y-_figDrawing.y1);
+      var tmp=document.getElementById('figDrawTmp');
+      if(!tmp){tmp=document.createElement('div');tmp.id='figDrawTmp';tmp.className='selbox selbox-tmp';layer.appendChild(tmp);}
+      tmp.style.left=rx+'px';tmp.style.top=ry+'px';
+      tmp.style.width=rw+'px';tmp.style.height=rh+'px';
+    }else if(_figDragMode==='resize'){
+      var t=_figDragTarget, n=figImgToNorm(off.x,off.y);
+      if(t.corner==='tl'){t.sel.x1=clamp(n.x);t.sel.y1=clamp(n.y);}
+      else if(t.corner==='tr'){t.sel.x2=clamp(n.x);t.sel.y1=clamp(n.y);}
+      else if(t.corner==='bl'){t.sel.x1=clamp(n.x);t.sel.y2=clamp(n.y);}
+      else if(t.corner==='br'){t.sel.x2=clamp(n.x);t.sel.y2=clamp(n.y);}
+      if(t.sel.x1>t.sel.x2){var tx=t.sel.x1;t.sel.x1=t.sel.x2;t.sel.x2=tx;}
+      if(t.sel.y1>t.sel.y2){var ty=t.sel.y1;t.sel.y1=t.sel.y2;t.sel.y2=ty;}
+      renderFigSel();
+    }else if(_figDragMode==='move'){
+      var tm=_figDragTarget, nm=figImgToNorm(off.x,off.y);
+      var sn=figImgToNorm(tm.startX,tm.startY);
+      var dw=nm.x-sn.x, dh=nm.y-sn.y;
+      var nw=tm.origX2-tm.origX1, nh=tm.origY2-tm.origY1;
+      tm.sel.x1=clamp(tm.origX1+dw);tm.sel.y1=clamp(tm.origY1+dh);
+      tm.sel.x2=clamp(tm.origX2+dw);tm.sel.y2=clamp(tm.origY2+dh);
+      if(tm.sel.x2-tm.sel.x1<0.01){tm.sel.x2=tm.sel.x1+nw;}
+      if(tm.sel.y2-tm.sel.y1<0.01){tm.sel.y2=tm.sel.y1+nh;}
+      renderFigSel();
     }
-    _figDrawing=null;_figDragMode=null;
+  });
+
+  layer.addEventListener('pointerup',function(e){
+    if(_figDragMode==='draw'&&_figDrawing){
+      var off=getLayerOff(e);
+      var dx=Math.abs(off.x-_figDrawing.x1), dy=Math.abs(off.y-_figDrawing.y1);
+      var tmp=document.getElementById('figDrawTmp');if(tmp)tmp.remove();
+      if(dx>20&&dy>20){
+        var img=document.getElementById('figDrawImg');
+        var n1=figImgToNorm(Math.min(_figDrawing.x1,off.x),Math.min(_figDrawing.y1,off.y));
+        var n2=figImgToNorm(Math.max(_figDrawing.x1,off.x),Math.max(_figDrawing.y1,off.y));
+        _figDrawRect={x1:n1.x,y1:n1.y,x2:n2.x,y2:n2.y};
+        renderFigSel();
+      }
+      _figDrawing=null;
+    }
+    _figDragMode=null;_figDragTarget=null;
   });
 }
 
@@ -789,8 +880,8 @@ async def mistake_process_image(request: Request):
             img = img.convert('RGB')
         # 压缩保存，质量 85，目标 ≤ 2MB
         out_path = os.path.join(processed_dir, fname)
-        quality = 85
-        while quality >= 55:
+        quality = 70
+        while quality >= 40:
             buf = io.BytesIO()
             img.save(buf, 'JPEG', quality=quality)
             if buf.tell() <= 2 * 1024 * 1024:
@@ -926,7 +1017,7 @@ async def mistake_save_regions(request: Request):
         cropped = img.crop((x1, y1, x2, y2))
         import io
         buf = io.BytesIO()
-        cropped.save(buf, "JPEG", quality=95)
+        cropped.save(buf, "JPEG", quality=75)
         orig_bytes = buf.getvalue()
 
         ts = str(int(_tm.time() * 1000))
@@ -1071,7 +1162,7 @@ async def mistake_crop_figure(request: Request, mistake_id: int):
         os.makedirs(fig_dir, exist_ok=True)
         fig_name = f"fig_{mistake_id}_{ts}.jpg"
         fig_path = os.path.join(fig_dir, fig_name)
-        cropped.save(fig_path, "JPEG", quality=90)
+        cropped.save(fig_path, "JPEG", quality=70)
     except Exception as e:
         return JSONResponse({"error":f"图片裁切失败：{e}"}, 500)
     label = form.get("label", "").strip() or f"图{ts[-4:]}"
@@ -1138,13 +1229,38 @@ async def mistake_export(request: Request):
 .exp-card{{margin-bottom:24px;padding-bottom:20px;border-bottom:1px dashed #ddd}}
 .exp-meta{{font-size:12px;color:#888;margin-bottom:8px}}
 .exp-text{{white-space:pre-wrap;word-break:break-word}}
-h1{{text-align:center;font-size:20px;margin-bottom:20px;color:#333}}
+h1{{text-align:center;font-size:20px;margin-bottom:12px;color:#333}}
+.exp-actions{{display:flex;justify-content:center;gap:10px;margin-bottom:24px;flex-wrap:wrap}}
+.exp-btn{{padding:8px 18px;border-radius:20px;font-size:13px;cursor:pointer;font-family:inherit;border:none;font-weight:600}}
+.exp-btn-print{{background:#5B7FFF;color:#fff}}
+.exp-btn-share{{background:#f0f0f0;color:#333}}
+.exp-btn-dl{{background:#f0f0f0;color:#333}}
 @media print{{
   body{{padding:15px;font-size:14px}}
   .exp-card{{page-break-inside:avoid;margin-bottom:18px}}
   h1{{font-size:18px}}
+  .exp-actions{{display:none!important}}
 }}
-</style></head><body><h1>错题导出</h1>{cards}<div style="text-align:center;margin-top:20px;"><button onclick="window.print()" style="padding:10px 24px;background:#5B7FFF;color:#fff;border:none;border-radius:20px;font-size:14px;cursor:pointer;font-family:inherit">打印</button></div></body></html>'''
+</style></head><body>
+<h1>错题导出</h1>
+<div class="exp-actions" id="expActions">
+  <button class="exp-btn exp-btn-print" onclick="window.print()">打印 / 另存PDF</button>
+  <button class="exp-btn exp-btn-share" id="btnShare" onclick="shareExport()">分享</button>
+  <button class="exp-btn exp-btn-dl" onclick="downloadHTML()">下载HTML</button>
+</div>
+{cards}
+<script>
+window.addEventListener('DOMContentLoaded',function(){{setTimeout(function(){{window.print()}},800)}});
+function shareExport(){{
+  if(navigator.share){{navigator.share({{title:'错题导出',text:'错题Pro导出'}})}}
+  else{{alert('当前浏览器不支持分享，可长按截图或用打印按钮另存PDF')}}
+}}
+function downloadHTML(){{
+  var blob=new Blob([document.documentElement.outerHTML],{{type:'text/html'}});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='错题导出.html';
+  document.body.appendChild(a);a.click();a.remove();
+}}
+</script></body></html>'''
     return HTMLResponse(html)
 
 
@@ -1272,21 +1388,23 @@ async def mistakes_list(request: Request):
     if redir: return redir
     subject = request.query_params.get("subject", "")
     subject_label = SUBJECT_NAMES.get(subject, subject)
+    date_from = request.query_params.get("date_from", "")
+    date_to = request.query_params.get("date_to", "")
+    page = int(request.query_params.get("page", "1"))
+    per_page = 5
     conn=ctx.get("conn"); cards=""; has_any=False
+    total = 0; total_pages = 0; all_filtered_ids = []
     if conn:
-        from db import list_mistakes, get_figures_for_mistake
-        ms=list_mistakes(conn, subject=subject if subject else None, limit=200)
-        em={"knowledge_gap":"知识盲区","thinking_error":"思路错误","careless":"粗心"}
+        from db import list_mistakes, count_mistakes, get_filtered_ids, get_figures_for_mistake
+        total = count_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        offset = (page - 1) * per_page
+        all_filtered_ids = get_filtered_ids(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None)
+        ms=list_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, limit=per_page, offset=offset)
         for m in ms:
             has_any=True
             mid=m["id"]
-            ocr_text=(m.get("ocr_text") or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
-            op=m["original_problem"]
-            is_img=op.startswith("IMAGE:")
-            display_img=op[6:] if is_img else ""
             crop_img=m.get("crop_image_path") or ""
-            kp=m["knowledge_point"];et=em.get(m["error_type"],"")
-            ec="tag-kg" if m['error_type']=='knowledge_gap' else("tag-te" if m['error_type']=='thinking_error' else"tag-cl")
             dt=m["created_at"][:10] if m.get("created_at") else ""
 
             figs=get_figures_for_mistake(conn, mid)
@@ -1295,11 +1413,10 @@ async def mistakes_list(request: Request):
                 figs_html+=f'<div class="fig-item"><img src="/{fi["image_path"]}" class="fig-thumb"><span class="fig-label">{fi.get("label","") or "图"}</span><button class="fig-del" onclick="delFig({fi["id"]},this)">✕</button></div>'
             text_value = m.get("ocr_text") or ""
 
-            cards+=f'''<div class="mcrd" id="card-{mid}">
+            cards+=f'''<div class="mcrd" id="card-{mid}" data-crop="{crop_img}">
   <div class="mcrd-top">
     <input type="checkbox" class="mcrd-check" data-id="{mid}" onchange="onChk()">
-    <span class="tag {ec}">{et}</span>
-    <span class="mcrd-kp">{kp}</span>
+    {f'<a class="fig-link" onclick="event.preventDefault();openFigCrop({mid})">截图案</a>' if crop_img else ''}
     <span class="mcrd-date">{dt}</span>
   </div>
   <textarea class="mcrd-txa" id="txt-{mid}" oninput="onTxtChange({mid})">{text_value}</textarea>
@@ -1307,12 +1424,30 @@ async def mistakes_list(request: Request):
     <button class="mbtn mbtn-save" onclick="saveTxt({mid})">保存</button>
     <span class="mbtn-hint" id="hint-{mid}">已修改</span>
   </div>
-  {f'<div class="mcrd-img-wrap"><img src="/{crop_img}" class="mcrd-img" id="cimg-{mid}" onclick="openFigCrop({mid})"><div class="mcrd-img-label">📷 原图·截图案</div></div>' if crop_img else ''}
   {f'<div class="mcrd-figs" id="figs-{mid}">{figs_html}</div>' if figs_html else f'<div class="mcrd-figs" id="figs-{mid}"></div>'}
   <div class="mcrd-footer">
     <button class="mbtn mbtn-del" onclick="delMis({mid})">删除</button>
   </div>
 </div>'''
+
+    # 日期筛选栏
+    date_filter = f'''<div class="date-filter">
+  <input type="date" id="dateFrom" value="{date_from}" onchange="applyDateFilter()">
+  <span class="date-sep">至</span>
+  <input type="date" id="dateTo" value="{date_to}" onchange="applyDateFilter()">
+  {f'<button class="date-clear" onclick="clearDateFilter()">清除</button>' if date_from or date_to else ''}
+</div>'''
+
+    # 翻页导航
+    pager = ""
+    if total_pages > 1:
+        pager = f'''<div class="pager">
+  <button class="pager-btn" onclick="goPage({page-1})" {'disabled' if page<=1 else ''}>上一页</button>
+  <span class="pager-info">{page}/{total_pages}（共{total}道）</span>
+  <button class="pager-btn" onclick="goPage({page+1})" {'disabled' if page>=total_pages else ''}>下一页</button>
+</div>'''
+
+    all_ids_json = json.dumps(all_filtered_ids)
 
     batch_bar=f'''<div class="batch-bar" id="batchBar" style="display:none">
   <div class="batch-left">
@@ -1320,14 +1455,14 @@ async def mistakes_list(request: Request):
     <span class="batch-count" id="batchCount">已选 0 道</span>
   </div>
   <div class="batch-right">
-    <button class="mbtn mbtn-exp" onclick="exportSel()">导出打印</button>
+    <button class="mbtn mbtn-exp" onclick="exportSel()">导出PDF</button>
     <button class="mbtn mbtn-del" onclick="delSel()">批量删除</button>
   </div>
 </div>'''
 
     title=f"{subject_label}错题本" if subject else "错题回顾"
     js=_JS_MISTAKES
-    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{batch_bar}</div>{js}'
+    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{date_filter}{pager}{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{pager}{batch_bar}<span id="allFilteredIds" data-ids="{all_ids_json}" style="display:none"></span></div>{js}'
     return HTMLResponse(_pg(body,"回顾"))
 
 # ─── 考点通 ────────────────────────────────────
@@ -1587,7 +1722,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}.mcrd{background:var(--w);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.mcrd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}.mcrd-check{width:18px;height:18px;accent-color:var(--b);cursor:pointer;flex-shrink:0}.mcrd-kp{flex:1;font-size:14px;font-weight:600;color:var(--t)}.mcrd-date{font-size:11px;color:var(--ts)}.mcrd-txa{width:100%;min-height:80px;font-size:14px;line-height:1.7;color:var(--t);border:1.5px solid var(--br);border-radius:10px;padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:inherit;background:var(--w)}.mcrd-txa:focus{outline:none;border-color:var(--b);box-shadow:0 0 0 3px rgba(91,127,255,.08)}.mcrd-acts{display:flex;align-items:center;gap:8px;margin-top:8px}.mbtn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;transition:opacity .15s}.mbtn:active{opacity:.8}.mbtn-save{background:var(--b);color:#FFF}.mbtn-del{background:var(--rb);color:var(--r)}.mbtn-exp{background:var(--b);color:#FFF}.mbtn-hint{font-size:12px;color:var(--a);display:none}.mcrd-img-wrap{position:relative;margin-top:10px}.mcrd-img{width:100%;border-radius:10px;cursor:pointer;border:1px solid var(--br)}.mcrd-img-label{text-align:center;font-size:11px;color:var(--ts);margin-top:4px}.mcrd-figs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.fig-item{position:relative;width:80px;text-align:center}.fig-thumb{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--br)}.fig-label{display:block;font-size:10px;color:var(--ts);margin-top:2px}.fig-del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#E04050;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}.mcrd-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.04)}.batch-bar{position:sticky;bottom:0;z-index:100;background:var(--w);border-radius:14px 14px 0 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}.batch-left{display:flex;align-items:center;gap:10px}.batch-right{display:flex;gap:8px}.batch-selall{font-size:13px;color:var(--t);cursor:pointer;display:flex;align-items:center;gap:4px}.batch-selall input{accent-color:var(--b)}.batch-count{font-size:13px;color:var(--ts);font-weight:600}.fig-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.fig-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.fig-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.fig-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.fig-scroll{flex:1;overflow-y:auto;padding:4px 8px}.fig-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,0,0,.06)}.fig-draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.fig-draw-img{display:block;width:100%;height:auto;pointer-events:none}.fig-draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.fig-hint{text-align:center;font-size:12px;color:var(--ts);padding:4px 12px}@media print{.nb,.mcrd-top,.mcrd-acts,.mcrd-footer,.batch-bar,.mcrd-check{display:none!important}.mcrd{box-shadow:none;border-bottom:1px solid #ccc;border-radius:0;page-break-inside:avoid;margin-bottom:16px;padding:8px 0}.mcrd-txa{border:none;resize:none;min-height:auto;padding:0}}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}.mcrd{background:var(--w);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.mcrd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}.mcrd-check{width:18px;height:18px;accent-color:var(--b);cursor:pointer;flex-shrink:0}.fig-link{font-size:12px;color:var(--b);text-decoration:none;padding:2px 10px;border:1px solid var(--br);border-radius:10px;flex-shrink:0}.mcrd-kp{flex:1;font-size:14px;font-weight:600;color:var(--t)}.mcrd-date{font-size:11px;color:var(--ts)}.mcrd-txa{width:100%;min-height:80px;font-size:14px;line-height:1.7;color:var(--t);border:1.5px solid var(--br);border-radius:10px;padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:inherit;background:var(--w)}.mcrd-txa:focus{outline:none;border-color:var(--b);box-shadow:0 0 0 3px rgba(91,127,255,.08)}.mcrd-acts{display:flex;align-items:center;gap:8px;margin-top:8px}.mbtn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;transition:opacity .15s}.mbtn:active{opacity:.8}.mbtn-save{background:var(--b);color:#FFF}.mbtn-del{background:var(--rb);color:var(--r)}.mbtn-exp{background:var(--b);color:#FFF}.mbtn-hint{font-size:12px;color:var(--a);display:none}.mcrd-img-wrap{position:relative;margin-top:10px}.mcrd-img{width:100%;border-radius:10px;cursor:pointer;border:1px solid var(--br)}.mcrd-img-label{text-align:center;font-size:11px;color:var(--ts);margin-top:4px}.mcrd-figs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.fig-item{position:relative;width:80px;text-align:center}.fig-thumb{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--br)}.fig-label{display:block;font-size:10px;color:var(--ts);margin-top:2px}.fig-del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#E04050;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}.mcrd-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.04)}.batch-bar{position:sticky;bottom:0;z-index:100;background:var(--w);border-radius:14px 14px 0 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}.batch-left{display:flex;align-items:center;gap:10px}.batch-right{display:flex;gap:8px}.batch-selall{font-size:13px;color:var(--t);cursor:pointer;display:flex;align-items:center;gap:4px}.batch-selall input{accent-color:var(--b)}.batch-count{font-size:13px;color:var(--ts);font-weight:600}.fig-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.fig-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.fig-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.fig-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.fig-scroll{flex:1;overflow-y:auto;padding:4px 8px}.fig-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,0,0,.06)}.fig-draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.fig-draw-img{display:block;width:100%;height:auto;pointer-events:none}.fig-draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.fig-hint{text-align:center;font-size:12px;color:var(--ts);padding:4px 12px}.date-filter{display:flex;gap:8px;align-items:center;margin-bottom:12px}.date-filter input[type=date]{font-size:13px;padding:6px 8px;border:1px solid var(--br);border-radius:8px;background:var(--w);color:var(--t);font-family:inherit;flex:1}.date-sep{font-size:12px;color:var(--ts);flex-shrink:0}.date-clear{font-size:12px;color:var(--r);background:none;border:none;cursor:pointer;padding:4px 8px}.pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:12px 0}.pager-btn{padding:6px 16px;border:1px solid var(--br);border-radius:20px;background:var(--w);color:var(--t);font-size:13px;cursor:pointer;font-family:inherit}.pager-btn:disabled{opacity:.3;cursor:default}.pager-info{font-size:13px;color:var(--ts)}@media print{.nb,.mcrd-top,.mcrd-acts,.mcrd-footer,.batch-bar,.mcrd-check,.date-filter,.pager{display:none!important}.mcrd{box-shadow:none;border-bottom:1px solid #ccc;border-radius:0;page-break-inside:avoid;margin-bottom:16px;padding:8px 0}.mcrd-txa{border:none;resize:none;min-height:auto;padding:0}}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""

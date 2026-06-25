@@ -171,12 +171,10 @@ def get_mistake(conn: sqlite3.Connection, mistake_id: int) -> dict:
     return dict(row) if row else None
 
 
-def list_mistakes(conn: sqlite3.Connection,
-                  subject: str = None,
-                  pool_status: str = None,
-                  knowledge_point: str = None,
-                  limit: int = 50) -> list[dict]:
-    sql = "SELECT * FROM mistakes WHERE 1=1"
+def _build_where(subject=None, pool_status=None, knowledge_point=None,
+                 date_from=None, date_to=None):
+    """构建 WHERE 子句，返回 (sql_fragment, params_list)"""
+    sql = " WHERE 1=1"
     params = []
     if subject:
         sql += " AND subject = ?"; params.append(subject)
@@ -184,8 +182,44 @@ def list_mistakes(conn: sqlite3.Connection,
         sql += " AND pool_status = ?"; params.append(pool_status)
     if knowledge_point:
         sql += " AND knowledge_point = ?"; params.append(knowledge_point)
-    sql += " ORDER BY created_at DESC LIMIT ?"; params.append(limit)
+    if date_from:
+        sql += " AND created_at >= ?"; params.append(date_from)
+    if date_to:
+        sql += " AND created_at <= ?"; params.append(date_to + " 23:59:59")
+    return sql, params
+
+
+def list_mistakes(conn: sqlite3.Connection,
+                  subject: str = None,
+                  pool_status: str = None,
+                  knowledge_point: str = None,
+                  date_from: str = None,
+                  date_to: str = None,
+                  limit: int = 50,
+                  offset: int = 0) -> list[dict]:
+    where, params = _build_where(subject, pool_status, knowledge_point, date_from, date_to)
+    sql = f"SELECT * FROM mistakes{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def count_mistakes(conn: sqlite3.Connection,
+                   subject: str = None,
+                   date_from: str = None,
+                   date_to: str = None) -> int:
+    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to)
+    sql = f"SELECT COUNT(*) FROM mistakes{where}"
+    return conn.execute(sql, params).fetchone()[0]
+
+
+def get_filtered_ids(conn: sqlite3.Connection,
+                     subject: str = None,
+                     date_from: str = None,
+                     date_to: str = None) -> list[int]:
+    """返回筛选结果的全部 ID，用于全选"""
+    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to)
+    sql = f"SELECT id FROM mistakes{where} ORDER BY created_at DESC"
+    return [r[0] for r in conn.execute(sql, params).fetchall()]
 
 
 def update_pool_status(conn: sqlite3.Connection, mistake_id: int, status: str) -> None:
