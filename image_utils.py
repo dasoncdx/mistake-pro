@@ -109,7 +109,7 @@ def _enhance(img: np.ndarray, fallback_bytes: bytes) -> bytes:
                            [-1, -1, -1]])
         sharpened = cv2.filter2D(enhanced, -1, kernel)
 
-        _, buf = cv2.imencode(".jpg", sharpened, [cv2.IMWRITE_JPEG_QUALITY, 50])
+        _, buf = cv2.imencode(".jpg", sharpened, [cv2.IMWRITE_JPEG_QUALITY, 35])
         return buf.tobytes()
     except Exception:
         return fallback_bytes
@@ -148,7 +148,7 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
 
         result = cv2.inpaint(img, mask, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
 
-        _, buf = cv2.imencode(".jpg", result, [cv2.IMWRITE_JPEG_QUALITY, 50])
+        _, buf = cv2.imencode(".jpg", result, [cv2.IMWRITE_JPEG_QUALITY, 35])
         return buf.tobytes()
     except Exception:
         return image_bytes
