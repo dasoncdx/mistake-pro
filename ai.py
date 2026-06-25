@@ -91,7 +91,7 @@ def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> 
 
     response = client.chat.completions.create(
         model=model,
-        max_tokens=2048,
+        max_tokens=4096,
         temperature=0.1,
         messages=[{
             "role": "user",
@@ -111,7 +111,7 @@ def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> 
                     "- text_with_figure: 图文混合（有插图、示意图、几何图、图表等），文字仍是主体\n"
                     "- mainly_figure: 主要是图（漫画、复杂几何图形、图表），文字仅辅助\n\n"
                     "返回一个JSON对象（不要markdown代码块，不要其他文字）：\n"
-                    '{{"handwriting_regions":[{{"x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}}],"ocr_text":"完整题目文字","content_type":"pure_text"}}\n\n'
+                    '{{"ocr_text":"完整题目文字","handwriting_regions":[{{"x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}}],"content_type":"pure_text"}}\n\n'
                     "坐标归一化到0-1范围，框紧紧贴合手写区域。没有手写则handwriting_regions为空数组[]。"
                 )},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
