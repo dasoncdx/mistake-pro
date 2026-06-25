@@ -329,7 +329,7 @@ function renderDrawUI(){
   var sel=document.getElementById('sel');
   sel.className='sel-overlay';
   var html='<div class="sel-topbar"><span class="sel-topbar-title">框选题目区域</span><button class="sel-close" onclick="location.reload()">✕</button></div>';
-  html+='<div class="sel-hint" style="text-align:center;font-size:12px;color:var(--ts);padding:4px 12px;">手指拖动画框 · 点击框内删除</div>';
+  html+='<div class="sel-hint" style="text-align:center;font-size:12px;color:var(--ts);padding:4px 12px;">手指拖动画框 · 拖拽四角微调 · 拖拽框体移动 · ✕ 删除</div>';
   html+='<div class="sel-scroll" id="selScroll">';
   html+='<div class="draw-wrap" id="drawWrap">';
   html+='<img src="'+_processedImg+'" class="draw-img" id="drawImg" onload="onImgLoad()">';
@@ -360,19 +360,37 @@ function normToImg(nx,ny){
 }
 function clampNorm(v){return Math.max(0,Math.min(1,v));}
 
-// ---- draw a single selection box on the layer ----
+function getLayerOffset(e){
+  var layer=document.getElementById('drawLayer');
+  var rect=layer.getBoundingClientRect();
+  return {x:e.clientX-rect.left, y:e.clientY-rect.top};
+}
+
+// ---- render selection box with resize handles ----
 function renderSelectionBox(s){
   var layer=document.getElementById('drawLayer');
   var id='selbox_'+s.id;
   var el=document.getElementById(id);
   if(!el){
-    el=document.createElement('div');el.id=id;
-    el.className='selbox';
-    el.innerHTML='<div class="selbox-del" data-sid="'+s.id+'">✕</div>';
+    el=document.createElement('div');el.id=id;el.className='selbox';
+    el.innerHTML='<div class="shandle sh-tl" data-corner="tl"></div><div class="shandle sh-tr" data-corner="tr"></div><div class="shandle sh-bl" data-corner="bl"></div><div class="shandle sh-br" data-corner="br"></div><div class="selbox-del">✕</div>';
     el.querySelector('.selbox-del').addEventListener('pointerdown',function(e){
       e.stopPropagation();e.preventDefault();
       _selections=_selections.filter(function(x){return x.id!==s.id});
       el.remove();updateCount();
+    });
+    el.addEventListener('pointerdown',function(e){
+      e.stopPropagation();
+      var corner=e.target.getAttribute('data-corner');
+      if(corner){
+        e.preventDefault();
+        _dragMode='resize';_dragTarget={sel:s,corner:corner};
+      }else if(e.target===el||e.target.classList.contains('selbox')){
+        e.preventDefault();
+        _dragMode='move';
+        var off=getLayerOffset(e);
+        _dragTarget={sel:s,startX:off.x,startY:off.y,origX1:s.x1,origY1:s.y1,origX2:s.x2,origY2:s.y2};
+      }
     });
     layer.appendChild(el);
   }
@@ -380,17 +398,16 @@ function renderSelectionBox(s){
   var p2=normToImg(s.x2,s.y2);
   el.style.left=p.x+'px';
   el.style.top=p.y+'px';
-  el.style.width=Math.max(10,p2.x-p.x)+'px';
-  el.style.height=Math.max(10,p2.y-p.y)+'px';
+  el.style.width=Math.max(20,p2.x-p.x)+'px';
+  el.style.height=Math.max(20,p2.y-p.y)+'px';
   el.style.display='block';
 }
 
 function syncSelectionDivs(){
   var layer=document.getElementById('drawLayer');
-  // remove orphaned boxes
   var ids=new Set(_selections.map(function(s){return 'selbox_'+s.id}));
   Array.from(layer.children).forEach(function(c){
-    if(!ids.has(c.id)&&c.classList.contains('selbox')) c.remove();
+    if(!ids.has(c.id)&&(c.classList.contains('selbox')||c.id==='drawTmp')) c.remove();
   });
   _selections.forEach(function(s){renderSelectionBox(s);});
 }
@@ -401,63 +418,79 @@ function updateCount(){
   document.getElementById('selConfirmBtn').textContent=n>0?'保存选题（'+n+'题）':'保存选题';
 }
 
-// ---- draw events ----
+var _dragMode=null;
+var _dragTarget=null;
+
 function bindDrawEvents(){
   var layer=document.getElementById('drawLayer');
   if(!layer||layer._bound) return;
   layer._bound=true;
 
   layer.addEventListener('pointerdown',function(e){
-    if(e.target!==layer) return; // only draw on empty area
-    var rect=layer.getBoundingClientRect();
-    _drawing={startX:e.clientX-rect.left, startY:e.clientY-rect.top, x1:e.clientX-rect.left, y1:e.clientY-rect.top, x2:e.clientX-rect.left, y2:e.clientY-rect.top};
+    if(_dragMode) return;
+    if(e.target!==layer) return;
     e.preventDefault();
+    var off=getLayerOffset(e);
+    _drawing={x1:off.x,y1:off.y,x2:off.x,y2:off.y};
+    _dragMode='draw';
   });
 
   layer.addEventListener('pointermove',function(e){
-    if(!_drawing) return;
-    var rect=layer.getBoundingClientRect();
-    _drawing.x2=e.clientX-rect.left;
-    _drawing.y2=e.clientY-rect.top;
-    // show temp rect
-    var tmp=document.getElementById('drawTmp');
-    if(!tmp){
-      tmp=document.createElement('div');tmp.id='drawTmp';
-      tmp.className='selbox selbox-tmp';
-      layer.appendChild(tmp);
-    }
-    var x=Math.min(_drawing.x1,_drawing.x2);
-    var y=Math.min(_drawing.y1,_drawing.y2);
-    var w=Math.abs(_drawing.x2-_drawing.x1);
-    var h=Math.abs(_drawing.y2-_drawing.y1);
-    tmp.style.left=x+'px';tmp.style.top=y+'px';
-    tmp.style.width=w+'px';tmp.style.height=h+'px';
-  });
-
-  layer.addEventListener('pointerup',function(e){
-    if(!_drawing) return;
-    var dx=Math.abs(_drawing.x2-_drawing.x1);
-    var dy=Math.abs(_drawing.y2-_drawing.y1);
-    // remove temp
-    var tmp=document.getElementById('drawTmp');
-    if(tmp) tmp.remove();
-    if(dx>20&&dy>20){
-      var n1=imgToNorm(Math.min(_drawing.x1,_drawing.x2),Math.min(_drawing.y1,_drawing.y2));
-      var n2=imgToNorm(Math.max(_drawing.x1,_drawing.x2),Math.max(_drawing.y1,_drawing.y2));
-      var s={id:_nextId++, x1:clampNorm(n1.x), y1:clampNorm(n1.y), x2:clampNorm(n2.x), y2:clampNorm(n2.y)};
-      _selections.push(s);
-      renderSelectionBox(s);
-      updateCount();
-    }
-    _drawing=null;
-  });
-
-  layer.addEventListener('pointerleave',function(e){
-    if(_drawing){
+    if(!_dragMode) return;
+    e.preventDefault();
+    var off=getLayerOffset(e);
+    if(_dragMode==='draw'){
+      if(!_drawing) return;
+      _drawing.x2=off.x;_drawing.y2=off.y;
+      var x=Math.min(_drawing.x1,_drawing.x2), y=Math.min(_drawing.y1,_drawing.y2);
+      var w=Math.abs(_drawing.x2-_drawing.x1), h=Math.abs(_drawing.y2-_drawing.y1);
       var tmp=document.getElementById('drawTmp');
-      if(tmp) tmp.remove();
+      if(!tmp){tmp=document.createElement('div');tmp.id='drawTmp';tmp.className='selbox selbox-tmp';layer.appendChild(tmp);}
+      tmp.style.left=x+'px';tmp.style.top=y+'px';
+      tmp.style.width=w+'px';tmp.style.height=h+'px';
+    }else if(_dragMode==='resize'){
+      var t=_dragTarget;
+      var n=imgToNorm(off.x,off.y);
+      if(t.corner==='tl'){t.sel.x1=clampNorm(n.x);t.sel.y1=clampNorm(n.y);}
+      else if(t.corner==='tr'){t.sel.x2=clampNorm(n.x);t.sel.y1=clampNorm(n.y);}
+      else if(t.corner==='bl'){t.sel.x1=clampNorm(n.x);t.sel.y2=clampNorm(n.y);}
+      else if(t.corner==='br'){t.sel.x2=clampNorm(n.x);t.sel.y2=clampNorm(n.y);}
+      if(t.sel.x1>t.sel.x2){var tx=t.sel.x1;t.sel.x1=t.sel.x2;t.sel.x2=tx;}
+      if(t.sel.y1>t.sel.y2){var ty=t.sel.y1;t.sel.y1=t.sel.y2;t.sel.y2=ty;}
+      renderSelectionBox(t.sel);
+    }else if(_dragMode==='move'){
+      var tm=_dragTarget;
+      var nm=imgToNorm(off.x,off.y);
+      var startNorm=imgToNorm(tm.startX,tm.startY);
+      var dw=nm.x-startNorm.x, dh=nm.y-startNorm.y;
+      var nw=tm.origX2-tm.origX1, nh=tm.origY2-tm.origY1;
+      tm.sel.x1=clampNorm(tm.origX1+dw);tm.sel.y1=clampNorm(tm.origY1+dh);
+      tm.sel.x2=clampNorm(tm.origX2+dw);tm.sel.y2=clampNorm(tm.origY2+dh);
+      if(tm.sel.x2-tm.sel.x1<0.01){tm.sel.x2=tm.sel.x1+nw;}
+      if(tm.sel.y2-tm.sel.y1<0.01){tm.sel.y2=tm.sel.y1+nh;}
+      renderSelectionBox(tm.sel);
+    }
+  });
+
+  function endDrag(e){
+    if(_dragMode==='draw'&&_drawing){
+      var dx=Math.abs(_drawing.x2-_drawing.x1), dy=Math.abs(_drawing.y2-_drawing.y1);
+      var tmp=document.getElementById('drawTmp');if(tmp)tmp.remove();
+      if(dx>20&&dy>20){
+        var n1=imgToNorm(Math.min(_drawing.x1,_drawing.x2),Math.min(_drawing.y1,_drawing.y2));
+        var n2=imgToNorm(Math.max(_drawing.x1,_drawing.x2),Math.max(_drawing.y1,_drawing.y2));
+        var s={id:_nextId++,x1:clampNorm(n1.x),y1:clampNorm(n1.y),x2:clampNorm(n2.x),y2:clampNorm(n2.y)};
+        _selections.push(s);renderSelectionBox(s);updateCount();
+      }
       _drawing=null;
     }
+    _dragMode=null;_dragTarget=null;
+  }
+
+  layer.addEventListener('pointerup',endDrag);
+  layer.addEventListener('pointerleave',function(e){
+    if(_dragMode==='draw'){var tmp=document.getElementById('drawTmp');if(tmp)tmp.remove();_drawing=null;}
+    _dragMode=null;_dragTarget=null;
   });
 }
 
@@ -1143,7 +1176,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
