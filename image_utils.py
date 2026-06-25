@@ -1,10 +1,21 @@
 """
 错题Pro - 图像处理工具
-文档展平 + 手写擦除（本地 OpenCV，< 1 秒）
+文档展平 + 版面检测(PaddleOCR) + 手写擦除（本地 OpenCV）
 """
 
 import cv2
 import numpy as np
+
+_layout_engine = None
+
+
+def _get_layout_engine():
+    """懒加载 PaddleOCR LayoutDetection，只初始化一次"""
+    global _layout_engine
+    if _layout_engine is None:
+        from paddleocr import LayoutDetection
+        _layout_engine = LayoutDetection()
+    return _layout_engine
 
 
 def flatten_page(image_bytes: bytes) -> bytes:
@@ -113,6 +124,160 @@ def _enhance(img: np.ndarray, fallback_bytes: bytes) -> bytes:
         return buf.tobytes()
     except Exception:
         return fallback_bytes
+
+
+def detect_layout(image_bytes: bytes) -> list[dict]:
+    """用 PaddleOCR PP-DocLayout 检测文字块区域。
+    返回: [{"x1": 0.05, "y1": 0.10, "x2": 0.95, "y2": 0.25, "label": "text", "score": 0.88}, ...]
+    坐标是比例值(0~1)，按 y 坐标从上到下排序。失败时返回空数组。
+    """
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return []
+        h, w = img.shape[:2]
+
+        # 保存临时文件（PaddleOCR 需要文件路径）
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            cv2.imwrite(f.name, img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            tmp_path = f.name
+
+        try:
+            engine = _get_layout_engine()
+            result = engine.predict(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+        boxes = result[0].get('boxes', []) if isinstance(result, list) and result else []
+
+        # 提取文字块坐标，过滤低置信度
+        regions = []
+        for box in boxes:
+            coord = box['coordinate']
+            x1, y1 = float(coord[0]), float(coord[1])
+            x2, y2 = float(coord[2]), float(coord[3])
+            score = float(box.get('score', 0))
+            label = box.get('label', 'text')
+
+            if score < 0.45:
+                continue
+
+            regions.append({
+                'x1': round(max(0, x1) / w, 3),
+                'y1': round(max(0, y1) / h, 3),
+                'x2': round(min(w, x2) / w, 3),
+                'y2': round(min(h, y2) / h, 3),
+                'label': label,
+                'score': round(score, 3),
+            })
+
+        regions.sort(key=lambda r: r['y1'])
+        return regions
+    except Exception:
+        return []
+
+
+def detect_question_regions(image_bytes: bytes) -> list[dict]:
+    """检测题目区域——PaddleOCR 版面检测 + 大块细分 + 网格兜底。
+    返回: [{"question_number": "1", "x1": 0.05, "y1": 0.10, "x2": 0.95, "y2": 0.25}, ...]
+    坐标是比例值(0~1)。保证覆盖整个内容区域。
+    """
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return []
+        h, w = img.shape
+
+        # 先用 PaddleOCR 检测文字块
+        layout_boxes = detect_layout(image_bytes)
+        text_boxes = [b for b in layout_boxes if b['label'] in ('text', 'image')]
+
+        # 如果 PaddleOCR 检测到足够的文字块，用版面结果 + 大块细分
+        if len(text_boxes) >= 3:
+            raw_regions = []
+            for box in text_boxes:
+                y1 = int(box['y1'] * h)
+                y2 = int(box['y2'] * h)
+                region_h = y2 - y1
+
+                # 大块（>10% 页面）再细分
+                if region_h > h * 0.10:
+                    sub_count = max(2, int(region_h / (h * 0.07)))
+                    sub_h = region_h / sub_count
+                    for j in range(sub_count):
+                        sy1 = int(y1 + j * sub_h)
+                        sy2 = int(y1 + (j + 1) * sub_h)
+                        if sy2 - sy1 > h / 100:
+                            raw_regions.append((sy1, sy2))
+                else:
+                    raw_regions.append((y1, y2))
+        else:
+            raw_regions = []
+
+        # 如果版面检测结果不够，用网格兜底
+        if len(raw_regions) < 5:
+            # 投影法找内容区域
+            _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            row_text = np.sum(binary, axis=1) / 255 / w
+            win = h // 30
+            kernel = np.ones(win) / win
+            row_smooth = np.convolve(row_text, kernel, mode='same')
+            mean_val = np.mean(row_smooth)
+
+            top = 0
+            for i in range(h // 10, h):
+                if row_smooth[i] > mean_val * 0.4:
+                    top = max(0, i - h // 40)
+                    break
+            bottom = h
+            for i in range(h - 1, h * 2 // 3, -1):
+                if row_smooth[i] > mean_val * 0.4:
+                    bottom = min(h, i + h // 40)
+                    break
+            content_h = bottom - top
+            if content_h < h * 0.3:
+                top, bottom = 0, h
+                content_h = h
+
+            target_h = h * 0.07
+            target_count = max(12, int(content_h / target_h))
+            grid_h = content_h / target_count
+            for i in range(target_count):
+                y1 = int(top + i * grid_h)
+                y2 = int(top + (i + 1) * grid_h)
+                if y2 - y1 > h / 100:
+                    raw_regions.append((y1, min(y2, bottom)))
+
+        # 排序并去重
+        raw_regions.sort(key=lambda r: r[0])
+        final_regions = []
+        for y1, y2 in raw_regions:
+            if final_regions and y1 < final_regions[-1][1]:
+                # 重叠则合并
+                final_regions[-1] = (final_regions[-1][0], max(final_regions[-1][1], y2))
+            else:
+                final_regions.append((y1, y2))
+
+        # 生成输出
+        regions = []
+        x_margin = 0.04
+        x_right = 0.96
+        for i, (y1, y2) in enumerate(final_regions):
+            regions.append({
+                "question_number": str(i + 1),
+                "label": "",
+                "x1": round(x_margin, 3),
+                "y1": round(y1 / h, 3),
+                "x2": round(x_right, 3),
+                "y2": round(y2 / h, 3),
+            })
+
+        return regions
+    except Exception:
+        return []
 
 
 def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:

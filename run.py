@@ -498,7 +498,7 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/process-image")
 async def mistake_process_image(request: Request):
-    """Image processing pipeline: flatten → analyze → erase → return with regions"""
+    """Image processing pipeline: flatten → layout detect → return with regions"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -518,23 +518,24 @@ async def mistake_process_image(request: Request):
     processed_dir = os.path.join(ROOT, "static", "processed")
     os.makedirs(processed_dir, exist_ok=True)
     try:
-        from image_utils import flatten_page, erase_handwriting
-        from ai import analyze_homework
+        from image_utils import flatten_page, detect_question_regions
+
+        # 先把原图展平
         flat_bytes = flatten_page(img_bytes)
-        analysis = analyze_homework(flat_bytes, grade, subject)
-        clean_bytes = erase_handwriting(flat_bytes, analysis.get("handwriting_regions", []))
+
+        # 版面检测用原图（分辨率更高，PaddleOCR 效果好），返回比例坐标
+        # 展平后图片比例基本一致，坐标通用
+        question_regions = detect_question_regions(img_bytes)
+
         out_path = os.path.join(processed_dir, fname)
         with open(out_path, "wb") as f:
-            f.write(clean_bytes)
+            f.write(flat_bytes)
         return JSONResponse({
             "processed_image_url": f"/static/processed/{fname}",
-            "question_regions": analysis.get("question_regions", [])
+            "question_regions": question_regions
         })
     except Exception as e:
-        msg = str(e)
-        if "VISION_API_KEY" in msg or "Vision API" in msg:
-            return JSONResponse({"error":"Vision API 未配置，请设置 VISION_API_KEY 环境变量"}, 500)
-        return JSONResponse({"error":f"图片处理失败：{msg}"}, 500)
+        return JSONResponse({"error":f"图片处理失败：{e}"}, 500)
 
 
 @app.post("/mistake/ocr")
