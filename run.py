@@ -312,7 +312,7 @@ async function processImage(inputEl){
   if(!f) return;
   document.getElementById('f').style.display='none';
   document.getElementById('ld').style.display='block';
-  document.getElementById('ldMsg').textContent='展平图片...';
+  document.getElementById('ldMsg').textContent='压缩图片...';
   var d=new FormData();d.append('photo',f);d.append('subject',document.getElementById('curSubject').value);
   try{
     var r=await fetch('/mistake/process-image',{method:'POST',body:d});
@@ -604,7 +604,7 @@ async def mistake_page(request: Request):
 
 @app.post("/mistake/process-image")
 async def mistake_process_image(request: Request):
-    """接收用户上传图片，完整保存原图，不做任何裁剪"""
+    """压缩上传图片（长边≤2048px, ≤2MB），保证文字清晰可读"""
     redir, ctx = _auth(request)
     if redir: return redir
     form = await request.form()
@@ -614,16 +614,35 @@ async def mistake_process_image(request: Request):
     img_bytes = await photo.read()
     if len(img_bytes) < 100:
         return JSONResponse({"error":"图片文件太小或损坏"}, 400)
-    import time, hashlib
+    import time, hashlib, io
     ts = str(int(time.time() * 1000))
     h = hashlib.md5(img_bytes[:1024]).hexdigest()[:8]
     fname = f"{ts}_{h}.jpg"
     processed_dir = os.path.join(ROOT, "static", "processed")
     os.makedirs(processed_dir, exist_ok=True)
     try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_bytes))
+        # 如果原图太大则等比缩小，长边限 2048px
+        w, h_orig = img.size
+        max_dim = 2048
+        if max(w, h_orig) > max_dim:
+            scale = max_dim / max(w, h_orig)
+            img = img.resize((int(w * scale), int(h_orig * scale)), Image.LANCZOS)
+        # 转为 RGB（处理 RGBA / P 模式）
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        # 压缩保存，质量 85，目标 ≤ 2MB
         out_path = os.path.join(processed_dir, fname)
+        quality = 85
+        while quality >= 55:
+            buf = io.BytesIO()
+            img.save(buf, 'JPEG', quality=quality)
+            if buf.tell() <= 2 * 1024 * 1024:
+                break
+            quality -= 10
         with open(out_path, "wb") as f:
-            f.write(img_bytes)
+            f.write(buf.getvalue())
         return JSONResponse({
             "processed_image_url": f"/static/processed/{fname}"
         })
