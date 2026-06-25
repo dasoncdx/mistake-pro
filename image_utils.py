@@ -392,3 +392,42 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
         return buf.tobytes()
     except Exception:
         return image_bytes
+
+
+def clean_question_crop(image_bytes: bytes) -> bytes:
+    """对裁剪的题目区域做清理：蓝/红笔迹擦除 + 展平增强。
+    用 HSV 检测彩色墨迹 → inpaint → flatten+enhance 输出。
+    """
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+
+        # ── 蓝/红笔迹检测（HSV）──
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+        lower_blue = np.array([90, 30, 30])
+        upper_blue = np.array([140, 255, 220])
+        blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+        lower_red1 = np.array([0, 30, 30])
+        upper_red1 = np.array([15, 255, 220])
+        lower_red2 = np.array([160, 30, 30])
+        upper_red2 = np.array([180, 255, 220])
+        red_mask = cv2.bitwise_or(
+            cv2.inRange(hsv, lower_red1, upper_red1),
+            cv2.inRange(hsv, lower_red2, upper_red2))
+
+        ink_mask = cv2.bitwise_or(blue_mask, red_mask)
+
+        kernel = np.ones((5, 5), np.uint8)
+        ink_mask = cv2.dilate(ink_mask, kernel, iterations=1)
+        ink_mask = cv2.morphologyEx(ink_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+        if cv2.countNonZero(ink_mask) > 0:
+            img = cv2.inpaint(img, ink_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+
+        return _enhance(img, image_bytes)
+    except Exception:
+        return image_bytes

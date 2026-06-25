@@ -522,18 +522,15 @@ async def mistake_process_image(request: Request):
     processed_dir = os.path.join(ROOT, "static", "processed")
     os.makedirs(processed_dir, exist_ok=True)
     try:
-        from image_utils import flatten_page, detect_question_regions
-
-        # 先把原图展平
-        flat_bytes = flatten_page(img_bytes)
+        from image_utils import detect_question_regions
 
         # 版面检测用原图（分辨率更高，PaddleOCR 效果好），返回比例坐标
-        # 展平后图片比例基本一致，坐标通用
         question_regions = detect_question_regions(img_bytes)
 
+        # 展示原图给用户看，不做展平（展平在保存区域时按需做）
         out_path = os.path.join(processed_dir, fname)
         with open(out_path, "wb") as f:
-            f.write(flat_bytes)
+            f.write(img_bytes)
         return JSONResponse({
             "processed_image_url": f"/static/processed/{fname}",
             "question_regions": question_regions
@@ -642,8 +639,9 @@ async def mistake_save_regions(request: Request):
     except Exception:
         return JSONResponse({"error":"无法打开处理图片"}, 400)
 
-    # Crop and save each region
+    # Crop, clean (erase handwriting), and save each region
     import time as _tm, hashlib as _hl
+    from image_utils import clean_question_crop
     crop_dir = os.path.join(ROOT, "saved", subject)
     os.makedirs(crop_dir, exist_ok=True)
 
@@ -656,10 +654,18 @@ async def mistake_save_regions(request: Request):
         if x2 <= x1 or y2 <= y1:
             continue
         cropped = img.crop((x1, y1, x2, y2))
+        # 转为 bytes → clean_question_crop（擦除笔迹 + 增强）
+        import io
+        buf = io.BytesIO()
+        cropped.save(buf, "JPEG", quality=95)
+        crop_bytes = buf.getvalue()
+        clean_bytes = clean_question_crop(crop_bytes)
+
         ts = str(int(_tm.time() * 1000))
         crop_name = f"crop_{ts}_{saved}.jpg"
         crop_path = os.path.join(crop_dir, crop_name)
-        cropped.save(crop_path, "JPEG", quality=85)
+        with open(crop_path, "wb") as f:
+            f.write(clean_bytes)
 
         qn = r.get("question_number", "")
         label = r.get("label", "")
