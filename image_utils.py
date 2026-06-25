@@ -155,8 +155,9 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
 
 
 def clean_question_crop(image_bytes: bytes) -> bytes:
-    """擦除手写笔迹 + 展平增强。用笔画宽度区分手写和印刷体：
-    手写笔迹细（1~3px），印刷体粗（4+px）。与颜色无关。
+    """擦除手写笔迹 + 展平增强。用形态学重建区分印刷体和手写体：
+    大核闭运算重建"干净的印刷文档" → 原图 - 重建图 = 手写层。
+    与笔迹粗细、颜色无关，只与是否为印刷体有关。
     """
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
@@ -164,22 +165,20 @@ def clean_question_crop(image_bytes: bytes) -> bytes:
         if img is None:
             return image_bytes
 
-        # 转灰度，自适应二值化找所有深色笔迹
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                        cv2.THRESH_BINARY_INV, 11, 3)
 
-        # 开运算：细笔画（手写）被移除，粗笔画（印刷体/横线/框线）留下
-        kernel_open = np.ones((3, 3), np.uint8)
-        opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel_open, iterations=2)
+        # 形态学闭运算重建"干净印刷文档"：核足够大以覆盖最粗的手写笔画
+        kernel_close = np.ones((9, 9), np.uint8)
+        clean_doc = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel_close)
 
-        # 手写 mask = 二值化 - 开运算后（被移除的细笔画）
-        handwriting_mask = cv2.subtract(thresh, opened)
+        # 手写 = 原图与重建文档的差异
+        diff = cv2.absdiff(gray, clean_doc)
+        _, handwriting_mask = cv2.threshold(diff, 12, 255, cv2.THRESH_BINARY)
 
-        # 膨胀 + 闭运算填补手写笔迹内部的空隙
-        kernel = np.ones((5, 5), np.uint8)
-        handwriting_mask = cv2.dilate(handwriting_mask, kernel, iterations=1)
-        handwriting_mask = cv2.morphologyEx(handwriting_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        # 清理 mask：去噪点 + 连接碎片
+        kernel = np.ones((3, 3), np.uint8)
+        handwriting_mask = cv2.morphologyEx(handwriting_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        handwriting_mask = cv2.dilate(handwriting_mask, np.ones((5, 5), np.uint8), iterations=1)
 
         if cv2.countNonZero(handwriting_mask) > 0:
             img = cv2.inpaint(img, handwriting_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
