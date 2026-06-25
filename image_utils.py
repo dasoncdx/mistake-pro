@@ -179,6 +179,60 @@ def detect_layout(image_bytes: bytes) -> list[dict]:
         return []
 
 
+def _find_question_markers(img: np.ndarray) -> list[int]:
+    """在左边缘区域找题号标记（1, 2, 3, 一、二 等），返回 y 坐标列表。"""
+    h, w = img.shape[:2]
+    margin_w = int(w * 0.12)
+    left = img[:, :margin_w]
+
+    _, bin_img = cv2.threshold(left, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
+
+    candidates = []
+    for i in range(1, num_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        x = stats[i, cv2.CC_STAT_LEFT]
+        y = stats[i, cv2.CC_STAT_TOP]
+        cw = stats[i, cv2.CC_STAT_WIDTH]
+        ch = stats[i, cv2.CC_STAT_HEIGHT]
+
+        # 题号特征：小面积、靠近左边缘、不太宽
+        if 60 < area < 6000 and 10 < ch < 250 and 8 < cw < 180 and x < margin_w * 0.7:
+            candidates.append((y, ch, x))
+
+    if not candidates:
+        return []
+
+    # 按 y 分组（同一行的属于同一个题号）
+    candidates.sort()
+    groups = []
+    current = [candidates[0]]
+    for c in candidates[1:]:
+        if c[0] - (current[-1][0] + current[-1][1]) < 30:
+            current.append(c)
+        else:
+            groups.append(current)
+            current = [c]
+    groups.append(current)
+
+    # 每组的顶部 y 就是题号位置
+    markers = []
+    for g in groups:
+        top = min(c[0] for c in g)
+        markers.append(top)
+
+    markers.sort()
+
+    # 过滤过于密集的标记（间距 < 2% 页面高度可能是同一题的子行）
+    min_gap = h * 0.08
+    filtered = [markers[0]]
+    for m in markers[1:]:
+        if m - filtered[-1] > min_gap:
+            filtered.append(m)
+    return filtered
+
+
 def detect_question_regions(image_bytes: bytes) -> list[dict]:
     """检测题目区域——PaddleOCR 版面检测 + 大块细分 + 网格兜底。
     返回: [{"question_number": "1", "x1": 0.05, "y1": 0.10, "x2": 0.95, "y2": 0.25}, ...]
@@ -191,82 +245,78 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
             return []
         h, w = img.shape
 
-        # 先用 PaddleOCR 检测文字块
-        layout_boxes = detect_layout(image_bytes)
-        text_boxes = [b for b in layout_boxes if b['label'] in ('text', 'image')]
+        # ── 内容边界检测（水平投影）──
+        _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        row_text = np.sum(binary, axis=1) / 255
+        kernel_size = max(5, h // 80)
+        row_smooth = np.convolve(row_text, np.ones(kernel_size) / kernel_size, mode='same')
+        mean_val = np.mean(row_smooth)
+        content_rows = np.where(row_smooth > mean_val * 0.3)[0]
+        top = int(content_rows[0]) if len(content_rows) > 0 else 0
+        bottom = int(content_rows[-1]) if len(content_rows) > 0 else h
 
-        # 如果 PaddleOCR 检测到足够的文字块，用版面结果 + 大块细分
-        if len(text_boxes) >= 3:
+        # ── 策略1: 题号标记检测 ──
+        markers = _find_question_markers(img)
+        if len(markers) >= 3:
+            split_ys = [top] + markers + [bottom]
             raw_regions = []
-            for box in text_boxes:
-                y1 = int(box['y1'] * h)
-                y2 = int(box['y2'] * h)
-                region_h = y2 - y1
-
-                # 大块（>13% 页面）再细分
-                if region_h > h * 0.13:
-                    sub_count = max(2, int(region_h / (h * 0.10)))
-                    sub_h = region_h / sub_count
-                    for j in range(sub_count):
-                        sy1 = int(y1 + j * sub_h)
-                        sy2 = int(y1 + (j + 1) * sub_h)
-                        if sy2 - sy1 > h / 100:
-                            raw_regions.append((sy1, sy2))
-                else:
-                    raw_regions.append((y1, y2))
+            for i in range(len(split_ys) - 1):
+                y1 = split_ys[i]
+                y2 = split_ys[i + 1]
+                if y2 - y1 < h * 0.03:
+                    continue
+                raw_regions.append((y1, y2))
         else:
-            raw_regions = []
+            # ── 策略2: PaddleOCR 版面检测 ──
+            layout_boxes = detect_layout(image_bytes)
+            text_boxes = [b for b in layout_boxes if b['label'] in ('text', 'image')]
+            if len(text_boxes) >= 3:
+                raw_regions = []
+                for box in text_boxes:
+                    y1 = int(box['y1'] * h)
+                    y2 = int(box['y2'] * h)
+                    region_h = y2 - y1
+                    if region_h > h * 0.13:
+                        sub_count = max(2, int(region_h / (h * 0.10)))
+                        sub_h = region_h / sub_count
+                        for j in range(sub_count):
+                            sy1 = int(y1 + j * sub_h)
+                            sy2 = int(y1 + (j + 1) * sub_h)
+                            if sy2 - sy1 > h / 100:
+                                raw_regions.append((sy1, sy2))
+                    else:
+                        raw_regions.append((y1, y2))
+                # 合并小碎片
+                raw_regions.sort(key=lambda r: r[0])
+                merged = [raw_regions[0]]
+                for y1, y2 in raw_regions[1:]:
+                    prev_y1, prev_y2 = merged[-1]
+                    gap = y1 - prev_y2
+                    prev_h = prev_y2 - prev_y1
+                    cur_h = y2 - y1
+                    tiny = h * 0.05
+                    if gap < h * 0.02 and (prev_h < tiny or cur_h < tiny):
+                        merged[-1] = (prev_y1, max(prev_y2, y2))
+                    else:
+                        merged.append((y1, y2))
+                raw_regions = merged
+            else:
+                raw_regions = []
 
-        # PaddleOCR 结果可用，就用它（合并小碎片后）；否则用网格兜底
-        if len(raw_regions) >= 3:
-            # 只合并小碎片：gap 小 AND 至少一方是 tiny region
-            raw_regions.sort(key=lambda r: r[0])
-            merged = [raw_regions[0]]
-            for y1, y2 in raw_regions[1:]:
-                prev_y1, prev_y2 = merged[-1]
-                gap = y1 - prev_y2
-                prev_h = prev_y2 - prev_y1
-                cur_h = y2 - y1
-                tiny = h * 0.05
-                if gap < h * 0.02 and (prev_h < tiny or cur_h < tiny):
-                    merged[-1] = (prev_y1, max(prev_y2, y2))
-                else:
-                    merged.append((y1, y2))
-            raw_regions = merged
-        else:
-            # 投影法找内容区域
-            _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-            row_text = np.sum(binary, axis=1) / 255 / w
-            win = h // 30
-            kernel = np.ones(win) / win
-            row_smooth = np.convolve(row_text, kernel, mode='same')
-            mean_val = np.mean(row_smooth)
-
-            top = 0
-            for i in range(h // 10, h):
-                if row_smooth[i] > mean_val * 0.4:
-                    top = max(0, i - h // 40)
-                    break
-            bottom = h
-            for i in range(h - 1, h * 2 // 3, -1):
-                if row_smooth[i] > mean_val * 0.4:
-                    bottom = min(h, i + h // 40)
-                    break
+        # ── 策略3: 网格兜底 ──
+        if len(raw_regions) < 4:
             content_h = bottom - top
-            if content_h < h * 0.3:
-                top, bottom = 0, h
-                content_h = h
-
             target_h = h * 0.13
             target_count = max(5, min(10, int(content_h / target_h)))
             grid_h = content_h / target_count
+            raw_regions = []
             for i in range(target_count):
                 y1 = int(top + i * grid_h)
                 y2 = int(top + (i + 1) * grid_h)
                 if y2 - y1 > h / 100:
                     raw_regions.append((y1, min(y2, bottom)))
 
-        # 排序并去重
+        # ── 后处理 ──
         raw_regions.sort(key=lambda r: r[0])
         final_regions = []
         for y1, y2 in raw_regions:
@@ -275,7 +325,7 @@ def detect_question_regions(image_bytes: bytes) -> list[dict]:
             else:
                 final_regions.append((y1, y2))
 
-        # 最终兜底：大块（>15%）再分一刀
+        # 大块兜底分割
         split_regions = []
         for y1, y2 in final_regions:
             if y2 - y1 > h * 0.15:

@@ -82,3 +82,20 @@ TECH_DESIGN.md = how we built it
 DESIGN.md = what it looks like
 run.py (code) = what it actually does
 ```
+
+## 6. Dependency & Environment Management
+
+**Search before install. Ask before large downloads.**
+
+Before installing any package, library, or tool:
+1. **Search first** — check if it already exists on this machine:
+   - Python packages: check across all installed Python versions (`python3.12 -c "import X"`, `python3.11`, etc.)
+   - System tools: `which X`, `brew list X`, or check common paths
+   - Look for venvs in the project directory that may already have dependencies
+2. **Use what exists** — prefer the already-installed version over re-installing
+3. **Large installs require confirmation** — if a download/install is estimated to take more than 30 seconds or exceeds 100MB, pause and ask the user:
+   - State what needs to be installed, why, and estimated size/time
+   - Offer to provide manual install commands the user can run themselves
+   - Wait for explicit confirmation before proceeding
+
+**Rationale:** Reinstalling existing packages wastes time and bandwidth. Large downloads may hit network constraints or user preferences the agent cannot anticipate. The user is the best judge of when and how to install heavyweight dependencies.

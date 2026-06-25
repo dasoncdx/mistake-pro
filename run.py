@@ -325,55 +325,54 @@ async function processImage(inputEl){
 }
 function renderProcessedUI(){
   var sel=document.getElementById('sel');
-  if(_regions.length===0){
-    var html='<div class="sel-header"><div class="sel-title">未检测到独立题目区域</div></div>';
-    html+='<div class="proc-img-wrap"><img src="'+_processedImg+'" class="proc-img"></div>';
-    html+='<div style="margin-top:12px;display:flex;gap:10px;">';
-    html+='<button class="btn" style="flex:1;background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;" onclick="location.reload()">重新拍照</button>';
-    html+='<button class="btn btn-p" style="flex:1;" onclick="saveFullImage()">保存全图</button>';
-    html+='</div>';
-    sel.innerHTML=html;sel.style.display='block';return;
-  }
-  var html='<div class="sel-header"><div class="sel-title">检测到 '+_regions.length+' 个题目区域，点击 <b style="color:var(--b);font-size:18px;">+</b> 选择</div></div>';
-  html+='<div class="sel-count" id="selCount">已选 0/'+_regions.length+' 道</div>';
+  sel.className='sel-overlay';
+  var title='检测到 '+_regions.length+' 个题目区域';
+  var noRegions=_regions.length===0;
+  var html='<div class="sel-topbar"><span class="sel-topbar-title">'+title+'</span><button class="sel-close" onclick="location.reload()">✕</button></div>';
+  html+='<div class="sel-scroll">';
   html+='<div class="proc-img-wrap" id="procImgWrap">';
   html+='<img src="'+_processedImg+'" class="proc-img" id="procImg" onload="placeButtons()">';
-  _regions.forEach(function(r,i){
-    var label=r.question_number||String(i+1);
-    html+='<div class="pbtn" id="pbtn_'+i+'" onclick="toggleRegion('+i+')" style="position:absolute;display:none;" title="第'+label+'题">'+label+'</div>';
-  });
+  if(!noRegions){
+    _regions.forEach(function(r,i){
+      html+='<div class="poverlay" id="poverlay_'+i+'" onclick="toggleRegion('+i+')" style="display:none;"><div class="pbtn">+</div></div>';
+    });
+  }
   html+='</div>';
-  html+='<button class="btn btn-p" style="margin-top:16px;" id="selConfirmBtn" onclick="saveRegions()">保存选题</button>';
-  sel.innerHTML=html;sel.style.display='block';
+  html+='</div>';
+  html+='<div class="sel-bottombar">';
+  html+='<span class="sel-count" id="selCount">已选 0/'+_regions.length+' 道</span>';
+  if(noRegions){
+    html+='<button class="btn" style="background:var(--c);border:1.5px solid var(--b);color:var(--b);padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;" onclick="location.reload()">重新拍照</button>';
+    html+='<button class="btn btn-p" onclick="saveFullImage()">保存全图</button>';
+  }else{
+    html+='<button class="btn btn-p" id="selConfirmBtn" onclick="saveRegions()">保存选题</button>';
+  }
+  html+='</div>';
+  sel.innerHTML=html;sel.style.display='flex';
 }
 function placeButtons(){
-  var wrap=document.getElementById('procImgWrap');
   var img=document.getElementById('procImg');
-  var iw=img.naturalWidth, ih=img.naturalHeight;
   var dw=img.clientWidth, dh=img.clientHeight;
   _regions.forEach(function(r,i){
-    var btn=document.getElementById('pbtn_'+i);
-    var cx=(r.x1+r.x2)/2*dw/dw;
-    var cy=r.y1*dh;
-    var x=r.x1*dw, y=r.y1*dh, w=(r.x2-r.x1)*dw;
-    btn.style.left=(x+w-18)+'px';
-    btn.style.top=(y-4)+'px';
-    btn.style.display='flex';
-    btn.setAttribute('data-x1',r.x1);
-    btn.setAttribute('data-y1',r.y1);
-    btn.setAttribute('data-x2',r.x2);
-    btn.setAttribute('data-y2',r.y2);
+    var overlay=document.getElementById('poverlay_'+i);
+    var x=r.x1*dw, y=r.y1*dh;
+    var w=(r.x2-r.x1)*dw, h=(r.y2-r.y1)*dh;
+    overlay.style.left=x+'px';
+    overlay.style.top=y+'px';
+    overlay.style.width=w+'px';
+    overlay.style.height=h+'px';
+    overlay.style.display='flex';
   });
 }
 window.addEventListener('resize',function(){if(_regions.length>0)placeButtons();});
 function toggleRegion(idx){
-  var btn=document.getElementById('pbtn_'+idx);
+  var overlay=document.getElementById('poverlay_'+idx);
   if(_selectedRegions[idx]){
     delete _selectedRegions[idx];
-    btn.classList.remove('pbtn-sel');
+    overlay.classList.remove('poverlay-sel');
   }else{
     _selectedRegions[idx]=_regions[idx];
-    btn.classList.add('pbtn-sel');
+    overlay.classList.add('poverlay-sel');
   }
   var n=Object.keys(_selectedRegions).length;
   document.getElementById('selCount').textContent='已选 '+n+'/'+_regions.length+' 道';
@@ -1079,7 +1078,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.proc-img-wrap{position:relative;display:inline-block;width:100%;border-radius:14px;overflow:hidden;background:var(--c)}.proc-img{display:block;width:100%;height:auto;border-radius:14px}.pbtn{position:absolute;width:32px;height:32px;background:var(--b);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.25);transition:transform .15s,background .15s;user-select:none;-webkit-tap-highlight-color:transparent}.pbtn:active{transform:scale(1.15)}.pbtn-sel{background:var(--g);transform:scale(1.1);box-shadow:0 0 0 3px rgba(52,199,89,.3)}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.proc-img-wrap{position:relative;display:inline-block;width:100%;border-radius:14px;overflow:hidden;background:var(--c)}.proc-img{display:block;width:100%;height:auto;border-radius:14px}.poverlay{position:absolute;background:rgba(91,127,255,0.04);border:2px dashed rgba(91,127,255,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;z-index:3;cursor:pointer;transition:background .15s,border-color .15s}.poverlay-sel{background:rgba(52,199,89,0.08);border:2px solid rgba(52,199,89,0.5)}.pbtn{width:36px;height:36px;background:var(--b);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none;user-select:none}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-scroll{flex:1;overflow-y:auto;padding:8px 12px}.sel-scroll .proc-img-wrap{max-height:none}.sel-scroll .proc-img{width:100%;height:auto;display:block}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
