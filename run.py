@@ -1052,6 +1052,17 @@ async def mistake_save_regions(request: Request):
             crop_path = new_crop_path
             crop_dir = new_crop_dir
             subject = detected
+            # 自动创建对应学科错题本
+            subs = _users[n].get("subjects", ["math"])
+            if subject not in subs:
+                subs.append(subject)
+                _users[n]["subjects"] = subs
+                try:
+                    d = os.path.join(_DATA_ROOT, "user_data", n)
+                    json.dump(_users[n], open(os.path.join(d, "profile.json"), "w"), ensure_ascii=False, indent=2)
+                    db.init_db(n)
+                except Exception:
+                    pass
 
         # 擦除手写 + 增强 → 清洁版
         hw_regions = analysis.get("handwriting_regions", [])
