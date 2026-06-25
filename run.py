@@ -940,8 +940,10 @@ async def mistake_save_regions(request: Request):
         try:
             gl = grade_label.get(grade, "")
             analysis = analyze_crop(orig_bytes, subject, gl)
-        except Exception:
-            pass  # AI 失败不阻断保存
+        except Exception as e:
+            import traceback
+            print(f"[save-regions] Vision API 失败: {e}")
+            traceback.print_exc()
 
         # 擦除手写 + 增强 → 清洁版
         hw_regions = analysis.get("handwriting_regions", [])

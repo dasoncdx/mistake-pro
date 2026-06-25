@@ -20,7 +20,7 @@ def _get_vision_client() -> OpenAI:
     api_key = os.environ.get("VISION_API_KEY")
     if not api_key:
         raise RuntimeError("VISION_API_KEY 环境变量未设置")
-    base_url = os.environ.get("VISION_BASE_URL", "https://api.siliconflow.cn/v1")
+    base_url = os.environ.get("VISION_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
@@ -120,7 +120,9 @@ def analyze_crop(image_bytes: bytes, subject: str = "math", grade: str = "") -> 
     )
 
     text = response.choices[0].message.content
+    print(f"[analyze_crop] API 返回长度: {len(text) if text else 0}, 前200字: {(text or '')[:200]}")
     result = _parse_json(text)
+    print(f"[analyze_crop] 解析结果类型: {type(result).__name__}, keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
     if isinstance(result, dict):
         regions = result.get("handwriting_regions", [])
         if isinstance(regions, list):
