@@ -623,6 +623,9 @@ async def mistake_process_image(request: Request):
     try:
         from PIL import Image
         img = Image.open(io.BytesIO(img_bytes))
+        # 根据 EXIF 方向标签自动旋转（手机竖拍照片靠这个标签指示方向）
+        from PIL import ImageOps
+        img = ImageOps.exif_transpose(img)
         # 如果原图太大则等比缩小，长边限 2048px
         w, h_orig = img.size
         max_dim = 2048
