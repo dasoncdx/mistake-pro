@@ -1,0 +1,9 @@
+design/
+static/processed/
+saved/
+venv/
+__pycache__/
+*.pyc
+.git/
+.env
+*.md
