@@ -154,73 +154,13 @@ def erase_handwriting(image_bytes: bytes, regions: list[dict]) -> bytes:
         return image_bytes
 
 
-def clean_question_crop(image_bytes: bytes) -> bytes:
-    """擦除手写笔迹 + 展平增强。用连通分量统计识别印刷体 vs 手写体：
-    图中绝大部分内容为印刷体（主导字体），连通分量尺寸集中在某个范围。
-    尺寸/形状显著偏离主导范围的分量标记为手写体，擦除。
-    """
+def enhance_image(image_bytes: bytes) -> bytes:
+    """对比度增强 + 锐化 + 尺寸限制，纯本地处理。"""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             return image_bytes
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # 自适应二值化
-        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                        cv2.THRESH_BINARY_INV, 11, 3)
-
-        # 连通分量分析
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(thresh, connectivity=8)
-
-        # 收集每个分量特征，过滤极小噪点和超大色块
-        comps = []
-        for i in range(1, num_labels):
-            a = stats[i, cv2.CC_STAT_AREA]
-            w = stats[i, cv2.CC_STAT_WIDTH]
-            h = stats[i, cv2.CC_STAT_HEIGHT]
-            if a < 15 or a > 8000 or w < 2 or h < 2:
-                continue
-            comps.append({'id': i, 'area': a, 'w': w, 'h': h,
-                          'aspect': w / h if h > 0 else 1})
-
-        if len(comps) < 20:
-            return _enhance(img, image_bytes)
-
-        # 用中位数找主导字符尺寸
-        heights = np.array([c['h'] for c in comps])
-        widths = np.array([c['w'] for c in comps])
-        med_h = np.median(heights)
-        med_w = np.median(widths)
-        # 用中位数绝对偏差（MAD）衡量偏离程度
-        mad_h = np.median(np.abs(heights - med_h)) + 1
-        mad_w = np.median(np.abs(widths - med_w)) + 1
-
-        # 标记偏离主导尺寸的分量为手写
-        handwriting_mask = np.zeros(gray.shape, dtype=np.uint8)
-        for c in comps:
-            is_hw = False
-            # 高度偏离 > 3x MAD
-            if abs(c['h'] - med_h) / mad_h > 3.0:
-                is_hw = True
-            # 极度宽：连笔手写（宽 > 2.5x 主导宽 且 宽高比 > 3）
-            if c['aspect'] > 2.8 and c['w'] > med_w * 1.8:
-                is_hw = True
-            # 密度过低（手写笔画稀疏不规则）
-            density = c['area'] / (c['w'] * c['h']) if c['w'] * c['h'] > 0 else 0
-            if density < 0.12 and c['area'] > 30:
-                is_hw = True
-
-            if is_hw:
-                component_mask = (labels == c['id']).astype(np.uint8) * 255
-                handwriting_mask = cv2.bitwise_or(handwriting_mask, component_mask)
-
-        if cv2.countNonZero(handwriting_mask) > 0:
-            kernel = np.ones((5, 5), np.uint8)
-            handwriting_mask = cv2.dilate(handwriting_mask, kernel, iterations=1)
-            handwriting_mask = cv2.morphologyEx(handwriting_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-            img = cv2.inpaint(img, handwriting_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-
         return _enhance(img, image_bytes)
     except Exception:
         return image_bytes

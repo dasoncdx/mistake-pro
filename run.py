@@ -755,7 +755,8 @@ async def mistake_save_regions(request: Request):
 
     # Crop, clean (erase handwriting), and save each region
     import time as _tm, hashlib as _hl
-    from image_utils import clean_question_crop
+    from image_utils import erase_handwriting, enhance_image
+    from ai import detect_handwriting
     crop_dir = os.path.join(ROOT, "saved", subject)
     os.makedirs(crop_dir, exist_ok=True)
 
@@ -768,12 +769,19 @@ async def mistake_save_regions(request: Request):
         if x2 <= x1 or y2 <= y1:
             continue
         cropped = img.crop((x1, y1, x2, y2))
-        # 转为 bytes → clean_question_crop（擦除笔迹 + 增强）
         import io
         buf = io.BytesIO()
         cropped.save(buf, "JPEG", quality=95)
         crop_bytes = buf.getvalue()
-        clean_bytes = clean_question_crop(crop_bytes)
+
+        # AI 检测手写区域 → OpenCV inpaint 擦除 → 增强
+        try:
+            hw_regions = detect_handwriting(crop_bytes)
+            if hw_regions:
+                crop_bytes = erase_handwriting(crop_bytes, hw_regions)
+        except Exception:
+            pass  # AI 检测失败时保留原图，至少不丢题
+        clean_bytes = enhance_image(crop_bytes)
 
         ts = str(int(_tm.time() * 1000))
         crop_name = f"crop_{ts}_{saved}.jpg"

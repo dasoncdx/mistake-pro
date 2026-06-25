@@ -16,6 +16,14 @@ from prompts import (
 )
 
 
+def _get_vision_client() -> OpenAI:
+    api_key = os.environ.get("VISION_API_KEY")
+    if not api_key:
+        raise RuntimeError("VISION_API_KEY 环境变量未设置")
+    base_url = os.environ.get("VISION_BASE_URL", "https://api.siliconflow.cn/v1")
+    return OpenAI(api_key=api_key, base_url=base_url)
+
+
 def _get_client() -> OpenAI:
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
@@ -68,6 +76,42 @@ def _parse_json(text: str) -> dict | list:
             from json_repair import repair_json
             return json.loads(repair_json(match.group(0)))
     raise RuntimeError(f"无法解析JSON: {text[:200]}...")
+
+
+def detect_handwriting(image_bytes: bytes) -> list[dict]:
+    """用 Vision 模型识别图片中的手写笔迹区域，返回归一化坐标列表。"""
+    import base64
+    client = _get_vision_client()
+    model = os.environ.get("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=1024,
+        temperature=0.1,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": (
+                    "Identify ALL handwriting, pen marks, pencil writing, or student-written answers in this homework image. "
+                    "Handwriting = anything a student wrote by hand (answers, corrections, doodles, scratch work, fill-in-the-blank). "
+                    "Printed text (the original question text, lines, brackets, diagrams) is NOT handwriting. "
+                    "Return ONLY a JSON array of bounding boxes: [{\"x1\":0.1,\"y1\":0.2,\"x2\":0.3,\"y2\":0.4},...]. "
+                    "Coordinates must be normalized to 0-1 range (proportion of image width/height). "
+                    "Each box should tightly enclose one handwriting region. "
+                    "If there is NO handwriting at all, return exactly: []. "
+                    "Return ONLY the JSON array, no other text, no markdown fences."
+                )},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+            ]
+        }]
+    )
+
+    text = response.choices[0].message.content
+    result = _parse_json(text)
+    if isinstance(result, list):
+        return [r for r in result if isinstance(r, dict) and all(k in r for k in ("x1","y1","x2","y2"))]
+    return []
 
 
 # ─── High-level Functions ───────────────────────────────────
