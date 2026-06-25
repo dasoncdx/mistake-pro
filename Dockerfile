@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# OpenCV + PaddlePaddle 需要的系统库
+# OpenCV 需要的系统库
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
