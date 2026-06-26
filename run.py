@@ -646,7 +646,7 @@ async function delSel(){
 function exportSel(){
   var ids=getSelIds();
   if(ids.length===0){alert('请先选择错题');return}
-  window.open('/mistake/export?ids='+ids.join(',')+'&download=1','_blank');
+  window.open('/mistake/export?ids='+ids.join(',')+'&download=1&_t='+Date.now(),'_blank');
 }
 async function delFig(figId,btn){
   if(!confirm('删除此图案？'))return;
@@ -1292,11 +1292,13 @@ h1{{text-align:center;font-size:20px;margin-bottom:24px;color:#333}}
             pdf_bytes = WHTML(string=download_html).write_pdf()
             from fastapi.responses import Response
             return Response(content=pdf_bytes, media_type="application/pdf",
-                          headers={"Content-Disposition": "attachment; filename*=UTF-8''%E9%94%99%E9%A2%98%E5%AF%BC%E5%87%BA.pdf"})
+                          headers={"Content-Disposition": "attachment; filename*=UTF-8''%E9%94%99%E9%A2%98%E5%AF%BC%E5%87%BA.pdf",
+                                   "Cache-Control": "no-store, no-cache, must-revalidate"})
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            return HTMLResponse(f"<pre>PDF生成失败: {e}\n\n{tb}</pre>", 500)
+            return HTMLResponse(f"<pre>PDF生成失败: {e}\n\n{tb}</pre>", 500,
+                              headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
     # HTML 预览模式
     preview_html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>错题导出打印</title>
@@ -1322,7 +1324,7 @@ h1{{text-align:center;font-size:20px;margin-bottom:12px;color:#333}}
 <script>
 function downloadPDF(){{window.location.search=window.location.search+'&download=1'}}
 </script></body></html>'''
-    return HTMLResponse(preview_html)
+    return HTMLResponse(preview_html, headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @app.post("/mistake/diagnose")
