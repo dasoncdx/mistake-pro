@@ -1,6 +1,6 @@
 # 错题Pro — 产品需求文档（PRD）
 
-> 版本：v1.4 | 状态：图片处理模式上线 | 线上：https://mistake-pro.zeabur.app
+> 版本：v1.5 | 状态：知识点关联+考点通联动上线 | 线上：https://mistake-pro.zeabur.app
 
 ---
 
@@ -512,7 +512,7 @@ user_data/{student_name}/ip_images/
 
 ---
 
-## 7. 当前实现状态（v1.4）
+## 7. 当前实现状态（v1.5）
 
 **线上地址**：https://mistake-pro.zeabur.app  
 **部署平台**：Zeabur（新加坡节点，Tencent Cloud 2C 4GB）  
@@ -530,7 +530,7 @@ user_data/{student_name}/ip_images/
 | F4 数据持久化 | ✅ | SQLite + /tmp 文件存储（Zeabur容器兼容） |
 | F12 课程知识库 | ✅ | knowledge_base表 + 1-12年级种子+按需扩展 + 知识点匹配+例题few-shot |
 | 错题本（首页） | ✅ | 年级选择器 + 录错题卡片 + 按学科显示错题数（支持图片题展示） |
-| 考点通 | ✅ | 知识点列表 + 详情页含举一反三(AI变式) + 打印 |
+| 考点通 | ✅ | v1.5重构：6色知识点卡片 + 错题数量 + 年级联动 + 变式题PDF导出 |
 | 我的 | ✅ | 头像/昵称/年级 + 科目展示 + 退出登录 |
 | 知识版图 | ✅ | 知识点掌握度列表 + 进度条 + 池状态标签（可继续访问） |
 | 学习报告 | ✅ | 整体掌握度 + 按知识点展开（可继续访问） |
@@ -543,6 +543,10 @@ user_data/{student_name}/ip_images/
 | 手写擦除 | ✅ | OpenCV INPAINT_TELEA + mask膨胀确保覆盖 |
 | MIME类型自动检测 | ✅ | 从上传文件名检测图片格式（不再硬编码image/jpeg） |
 | 管理后台 | ✅ | POST /admin/seed-knowledge-base, GET /admin/kb-stats |
+| 知识点自动匹配 | ✅ | v1.5：保存错题后AI匹配教材知识点（MVP小四数学），更新mistakes.knowledge_point |
+| 知识点标签 | ✅ | v1.5：错题卡片绿色椭圆标签，显示知识点（`单元 · 知识点`格式） |
+| 年级联动 | ✅ | v1.5：错题本与考点通页面均设年级切换器，切换后自动刷新 |
+| 题库爬虫 | ✅ | v1.5：独立crawler.py脚本，cron定时运行，按学科+年级积累题库 |
 
 ### 待实现
 

@@ -13,6 +13,7 @@ from prompts import (
     diagnosis_prompt,
     variant_gen_prompt,
     answer_check_prompt,
+    kp_match_prompt,
 )
 
 
@@ -229,3 +230,31 @@ def check_answer(problem: str, correct_answer: str, student_answer: str,
         except Exception as e:
             if attempt == 2:
                 raise RuntimeError(f"批改失败（重试3次后）: {e}")
+
+
+def match_knowledge_point(ocr_text: str, subject: str, grade_level: str) -> str:
+    """用 AI 将 OCR 文本匹配到教材知识点，返回 full name 如"三角形_三角形的内角和"。"""
+    import reference
+    kp_list = reference.get_kp_names(subject, grade_level)
+    if not kp_list:
+        return ""
+
+    prompt = kp_match_prompt(ocr_text, subject, grade_level, kp_list)
+    for attempt in range(3):
+        try:
+            response = call_llm(SYSTEM_PROMPTS["kp_match"], prompt)
+            result = _parse_json(response)
+            if isinstance(result, dict) and "knowledge_point" in result:
+                kp = result["knowledge_point"].strip()
+                if kp and kp in kp_list:
+                    return kp
+                if kp:
+                    # AI 可能返回近似名称，尝试模糊匹配
+                    for name in kp_list:
+                        if kp in name or name in kp:
+                            return name
+            return ""
+        except Exception:
+            if attempt == 2:
+                return ""  # 失败不阻塞流程
+    return ""

@@ -392,6 +392,17 @@ def get_all_masteries(conn: sqlite3.Connection, subject: str = 'math') -> list[d
         (subject,)).fetchall()]
 
 
+def get_kp_stats(conn: sqlite3.Connection, subject: str, grade_level: str) -> list[dict]:
+    """按知识点分组统计错题数（排除图片录入的）"""
+    return [dict(r) for r in conn.execute("""
+        SELECT knowledge_point, COUNT(*) AS mistake_count
+        FROM mistakes
+        WHERE subject = ? AND grade_level = ? AND knowledge_point != '图片录入'
+        GROUP BY knowledge_point
+        ORDER BY mistake_count DESC
+    """, (subject, grade_level)).fetchall()]
+
+
 def get_due_reviews(conn: sqlite3.Connection, subject: str = 'math') -> list[dict]:
     """到期需复习的知识点"""
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

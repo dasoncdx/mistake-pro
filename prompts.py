@@ -6,6 +6,10 @@
 # ─── System Prompts ─────────────────────────────────────────
 
 SYSTEM_PROMPTS = {
+    "kp_match": (
+        "你是一位教材专家，精通各年级学科的知识点体系。"
+        "你只输出合法的JSON对象，不输出其他任何文字。"
+    ),
     "diagnosis": (
         "你是一位有20年经验的数学教师，擅长错误分析和知识点定位。"
         "你只输出合法的JSON对象，不输出其他任何文字。"
@@ -212,3 +216,26 @@ def pure_ocr_prompt(grade_level: str, subject: str = "数学") -> str:
 
 只返回纯JSON数组（不要markdown代码块）：
 [{{"question_index": "1", "question_text": "题目原文，保留横线___、括号()、选项A.B.C.D...."}}]"""
+
+
+# ─── Knowledge Point Matching Prompt ──────────────────────────
+
+def kp_match_prompt(ocr_text: str, subject: str, grade_level: str, kp_list: list[str]) -> str:
+    kp_text = "\n".join("- " + kp for kp in kp_list)
+    return (
+        "请将以下题目文本匹配到最合适的知识点。\n\n"
+        "=== 学生信息 ===\n"
+        "年级：" + grade_level + "\n"
+        "学科：" + subject + "\n\n"
+        "=== 题目文本 ===\n"
+        + ocr_text[:800] + "\n\n"
+        "=== 可选知识点列表 ===\n"
+        + kp_text + "\n\n"
+        "=== 你的任务 ===\n"
+        "从上述知识点列表中选出最匹配的一个。匹配原则：\n"
+        "- 仔细分析题目考察的核心知识点，与列表比对\n"
+        "- 优先匹配最精确的知识点（如\"三角形_三角形的内角和\"优于\"三角形_三角形的认识\"）\n"
+        "- 如果题目明显不在列表中，返回空字符串\n\n"
+        "=== 输出格式 ===\n"
+        '只返回JSON：{"knowledge_point": "单元_知识点"} 或 {"knowledge_point": ""}'
+    )

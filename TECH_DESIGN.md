@@ -1,6 +1,6 @@
 # 错题Pro — 技术方案文档（TECH DESIGN）
 
-> 版本：v1.4 | 对应PRD：v1.4 | 已部署：https://mistake-pro.zeabur.app
+> 版本：v1.5 | 对应PRD：v1.5 | 已部署：https://mistake-pro.zeabur.app
 
 ---
 
@@ -1156,7 +1156,9 @@ def compute_trend(knowledge_point_data: dict) -> dict:
 项目结构（线上实际运行）：
   ├── run.py               # 唯一入口，所有业务逻辑
   ├── db.py / ai.py / prompts.py / scheduler.py  # 引擎模块
-  ├── requirements.txt      # openai, fastapi, uvicorn, python-dotenv, python-multipart
+  ├── reference.py          # v1.5: 教材docx目录解析 + 知识点查询
+  ├── crawler.py            # v1.5: 独立题库爬虫（cron定时运行）
+  ├── requirements.txt      # openai, fastapi, uvicorn, python-dotenv, python-multipart, python-docx
   ├── Procfile             # web: python run.py
   └── .gitignore           # 排除 .env, .session, user_data/
 

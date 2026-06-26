@@ -9,7 +9,7 @@ _DATA_ROOT = "/tmp/mistake_pro_data" if os.path.exists("/tmp") and not os.access
 
 from dotenv import load_dotenv; load_dotenv()
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # 强制db.py用/tmp写数据
@@ -808,6 +808,11 @@ async function saveFigCrop(){
     }
   }else{alert('截取失败')}
 }
+async function updateGrade(v){
+  var d=new FormData();d.append('grade',v);
+  await fetch('/update-grade',{method:'POST',body:d});
+  location.reload();
+}
 </script>"""
 
 @app.get("/mistake/new", response_class=HTMLResponse)
@@ -1103,9 +1108,10 @@ async def mistake_save_regions(request: Request):
         qn = r.get("question_number", "")
         label = r.get("label", "")
         label_str = f" ({label})" if label else ""
+        mid = None
         if conn:
             from db import insert_mistake
-            insert_mistake(conn,
+            mid = insert_mistake(conn,
                 subject=subject,
                 original_problem=op,
                 wrong_answer="", correct_answer="",
@@ -1115,6 +1121,18 @@ async def mistake_save_regions(request: Request):
                 ocr_text=ocr_text or None,
                 crop_image_path=crop_rel)
         saved += 1
+
+        # AI知识点匹配（MVP仅小四数学）
+        if mid and ocr_text and subject == "math" and grade == "grade_4":
+            try:
+                from ai import match_knowledge_point
+                kp = match_knowledge_point(ocr_text, subject, grade)
+                if kp:
+                    conn.execute("UPDATE mistakes SET knowledge_point=? WHERE id=?", (kp, mid))
+                    conn.commit()
+                    print(f"[save-regions] 知识点匹配成功: mid={mid}, kp={kp}")
+            except Exception as e:
+                print(f"[save-regions] 知识点匹配失败: {e}")
 
     return JSONResponse({"count": saved})
 
@@ -1479,6 +1497,13 @@ async def mistakes_list(request: Request):
             for fi in figs:
                 figs_html+=f'<div class="fig-item"><img src="/{fi["image_path"]}" class="fig-thumb"><span class="fig-label">{fi.get("label","") or "图"}</span><button class="fig-del" onclick="delFig({fi["id"]},this)">✕</button></div>'
             text_value = m.get("ocr_text") or ""
+            kp = m.get("knowledge_point","")
+
+            # 知识点标签（若还是"图片录入"，后台补匹配）
+            kp_tag = ""
+            if kp and kp != "图片录入":
+                kp_display = kp.replace("_", " · ")
+                kp_tag = f'<div class="kp-tag"><span class="kp-label">知识点</span><span class="kp-value">{kp_display}</span></div>'
 
             cards+=f'''<div class="mcrd" id="card-{mid}" data-crop="{crop_img}">
   <div class="mcrd-top">
@@ -1487,6 +1512,7 @@ async def mistakes_list(request: Request):
     <span class="mcrd-date">{dt}</span>
   </div>
   <textarea class="mcrd-txa" id="txt-{mid}" oninput="onTxtChange({mid})">{text_value}</textarea>
+  {kp_tag}
   <div class="mcrd-acts" id="acts-{mid}" style="display:none;">
     <button class="mbtn mbtn-save" onclick="saveTxt({mid})">保存</button>
     <span class="mbtn-hint" id="hint-{mid}">已修改</span>
@@ -1528,8 +1554,9 @@ async def mistakes_list(request: Request):
 </div>'''
 
     title=f"{grade_label} · {subject_label}错题本" if subject else f"{grade_label} · 错题回顾"
+    grade_options = ''.join(f'<option value="{k}" {"selected" if k==grade else ""}>{v}</option>' for k,v in GRADE_OPTIONS)
     js=_JS_MISTAKES
-    body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{date_filter}{pager}{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{pager}{batch_bar}<span id="allFilteredIds" data-ids="{all_ids_json}" style="display:none"></span></div>{js}'
+    body=f'<div class="pg"><div class="nb" style="display:flex;align-items:center;gap:8px;"><a href="/home">← 返回</a><select class="grade-select" onchange="updateGrade(this.value)">{grade_options}</select><span class="tt">{title}</span></div>{date_filter}{pager}{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{pager}{batch_bar}<span id="allFilteredIds" data-ids="{all_ids_json}" style="display:none"></span></div>{js}'
     return HTMLResponse(_pg(body,"回顾"))
 
 # ─── 考点通 ────────────────────────────────────
@@ -1538,27 +1565,55 @@ async def mistakes_list(request: Request):
 async def exam_points_page(request: Request):
     redir, ctx = _auth(request)
     if redir: return redir
+    pf = ctx.get("profile", {})
+    grade = pf.get("grade_level", "grade_4")
+    grade_label = GRADE_LABELS.get(grade, grade)
+    grade_options = ''.join(f'<option value="{k}" {"selected" if k==grade else ""}>{v}</option>' for k,v in GRADE_OPTIONS)
     conn = ctx.get("conn")
     items = ""
     if conn:
-        from db import get_all_masteries
-        subjects = ctx.get("profile", {}).get("subjects", ["math"])
+        from db import get_kp_stats
+        subjects = pf.get("subjects", ["math"])
+        colors = [
+            ("rgba(220,250,239,0.6)", "#1A8D5C"),
+            ("rgba(240,251,217,0.6)", "#6B8E23"),
+            ("rgba(225,241,255,0.6)", "#3D5FD9"),
+            ("rgba(251,238,252,0.6)", "#9B59B6"),
+            ("rgba(255,242,227,0.6)", "#D9821A"),
+            ("rgba(244,241,255,0.6)", "#6C5CE7"),
+        ]
         for subj in subjects:
-            ms = get_all_masteries(conn, subj)
-            if ms:
-                items += f'<div class="section-title" style="margin-top:8px;">{SUBJECT_NAMES.get(subj, subj)}</div>'
-                for m in ms:
-                    sc = m["mastery_score"]
-                    c = "#3D5FD9" if sc >= 0.7 else ("#D9821A" if sc >= 0.4 else "#E04050")
-                    tc = "tag-m" if m["pool_status"] == "dormant" else ("tag-w" if m["pool_status"] == "active" else "tag-i")
-                    st = "熟练" if m["pool_status"] == "dormant" else ("攻克中" if m["pool_status"] == "active" else "需加强")
-                    kp_encoded = quote(m["knowledge_point"])
-                    items += f'''<a href="/exam-point/{kp_encoded}" class="kp-card">
-                      <span class="kp-name">{m["knowledge_point"]}</span>
-                      <span class="kp-score" style="color:{c};">{int(sc*100)}%</span>
-                      <span class="tag {tc}">{st}</span>
-                    </a>'''
-    body = f'<div class="pg"><div class="section-title" style="font-size:20px;font-weight:700;color:var(--t);margin-bottom:16px;">考点通</div>{items or "<div style=\'color:var(--ts);font-size:13px;\'>暂无考点数据，先录入错题吧</div>"}</div>'
+            stats = get_kp_stats(conn, subj, grade)
+            if stats:
+                subj_label = SUBJECT_NAMES.get(subj, subj)
+                items += f'<div class="section-title" style="margin-top:4px;font-size:14px;color:var(--ts);">{subj_label}</div>'
+                for i, s in enumerate(stats):
+                    bg, tc = colors[i % len(colors)]
+                    kp_display = s["knowledge_point"].replace("_", " · ")
+                    kp_encoded = quote(s["knowledge_point"])
+                    items += f'''<a href="/exam-point/{kp_encoded}?grade={grade}" class="ep-card" style="background:{bg};color:{tc};">
+  <span class="ep-name">{kp_display}</span>
+  <span class="ep-count">{s["mistake_count"]} 道错题</span>
+</a>'''
+    if not items:
+        items = '<div style="color:var(--ts);font-size:13px;padding:20px;text-align:center;">暂无考点数据，先录入错题吧</div>'
+
+    body = f'''<div class="pg">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+  <select class="grade-select" onchange="updateGrade(this.value)">{grade_options}</select>
+  <a href="/home" style="font-size:13px;color:var(--b);margin-left:auto;text-decoration:none;">← 返回</a>
+</div>
+<div class="section-title" style="font-size:20px;font-weight:700;color:var(--t);margin-bottom:4px;">{grade_label} · 考点通</div>
+<div style="font-size:12px;color:var(--ts);margin-bottom:14px;">按教材知识点统计错题，精准定位薄弱环节</div>
+{items}
+</div>
+<script>
+async function updateGrade(v){{
+  var d=new FormData();d.append('grade',v);
+  await fetch('/update-grade',{{method:'POST',body:d}});
+  location.reload();
+}}
+</script>'''
     return HTMLResponse(_pg(body, "考点通", "exam_points"))
 
 @app.get("/exam-point/{kp}", response_class=HTMLResponse)
@@ -1566,53 +1621,80 @@ async def exam_point_detail(request: Request, kp: str):
     redir, ctx = _auth(request)
     if redir: return redir
     kp = unquote(kp)
+    grade = request.query_params.get("grade", "grade_4")
+    grade_label = GRADE_LABELS.get(grade, grade)
+    kp_display = kp.replace("_", " · ")
     conn = ctx.get("conn")
     mistakes_html = ""
     if conn:
         from db import list_mistakes
-        ms = list_mistakes(conn, knowledge_point=kp, limit=50)
+        ms = list_mistakes(conn, knowledge_point=kp, grade_level=grade, limit=50)
         for m in ms:
             em = {"knowledge_gap": "知识盲区", "thinking_error": "思路错误", "careless": "粗心"}
             ec = "tag-kg" if m['error_type'] == 'knowledge_gap' else ("tag-te" if m['error_type'] == 'thinking_error' else "tag-cl")
             op = m["original_problem"]
+            ocr = m.get("ocr_text") or ""
+            crop_img = m.get("crop_image_path") or ""
             if op.startswith("IMAGE:"):
-                mistakes_html += f'''<div class="crd">
-                  <span class="tag" style="background:var(--c);color:var(--tw);">图片题</span>
-                  <img src="/{op[6:]}" style="max-width:100%;border-radius:10px;max-height:200px;margin-top:8px;" alt="错题图片">
-                </div>'''
+                img_src = op[6:] if not crop_img else crop_img
+                mistakes_html += f'''<div class="mcrd">
+  <div class="mcrd-top"><span class="tag {ec}">{em.get(m["error_type"], "")}</span><span class="mcrd-date">{m.get("created_at","")[:10]}</span></div>
+  <img src="/{img_src}" style="max-width:100%;border-radius:10px;max-height:220px;" alt="错题图片">
+  {f'<textarea class="mcrd-txa" style="margin-top:8px;">{ocr}</textarea>' if ocr else ''}
+</div>'''
             else:
-                mistakes_html += f'''<div class="crd">
-                  <span class="tag {ec}">{em.get(m["error_type"], "")}</span>
-                  <div style="font-size:14px;color:var(--t);margin-top:8px;">{op[:100]}</div>
-                </div>'''
+                text_value = ocr or op
+                mistakes_html += f'''<div class="mcrd">
+  <div class="mcrd-top"><span class="tag {ec}">{em.get(m["error_type"], "")}</span><span class="mcrd-date">{m.get("created_at","")[:10]}</span></div>
+  <textarea class="mcrd-txa">{text_value}</textarea>
+  {f'<img src="/{crop_img}" style="max-width:100%;border-radius:10px;max-height:220px;margin-top:8px;">' if crop_img else ''}
+</div>'''
+
     body = f"""<div class="pg">
-    <div class="nb"><a href="/exam-points">← 返回</a><span class="tt">{kp}</span></div>
-    {mistakes_html or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无记录</div>"}
-    <div style="display:flex;gap:12px;margin-top:16px;">
-      <button class="btn btn-p" style="flex:1;" onclick="generateVariants()">举一反三</button>
-      <button class="btn" style="flex:1;background:var(--c);color:var(--t);" onclick="window.print()">打印</button>
-    </div>
-    <div id="variants-result"></div>
-    </div>
-    <script>
-    var currentKp = '{kp}';
-    async function generateVariants() {{
-      var r = document.getElementById('variants-result');
-      r.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner"></div><div style="color:var(--ts)">AI 正在生成变式题...</div></div>';
-      var d = new FormData(); d.append('knowledge_point', currentKp);
-      try {{
-        var resp = await fetch('/generate-variants', {{method:'POST', body:d}});
-        var j = await resp.json();
-        if (j.error) {{ r.innerHTML = '<div class="err-msg">'+escHtml(j.error)+'</div>'; return; }}
-        var html = '';
-        j.variants.forEach(function(v, i) {{
-          html += '<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);">变式题 '+(i+1)+'</div><div style="font-size:14px;color:var(--t);line-height:1.8;margin:8px 0;">'+escHtml(v.problem)+'</div><div style="font-size:12px;color:var(--tw);">答案：'+escHtml(v.correct_answer)+'</div></div>';
-        }});
-        r.innerHTML = html;
-      }} catch(e) {{ r.innerHTML = '<div class="err-msg">生成失败，请重试</div>'; }}
-    }}
-    function escHtml(s) {{ var d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }}
-    </script>"""
+<div class="nb"><a href="/exam-points">← 返回</a><span class="tt">{grade_label} · {kp_display}</span></div>
+<p style="font-size:12px;color:var(--ts);margin:0 0 12px;">共 {len(ms) if conn else 0} 道错题</p>
+{mistakes_html or "<div style='color:var(--ts);font-size:13px;padding:12px 0;'>暂无记录</div>"}
+<div id="variants-result"></div>
+<div style="display:flex;gap:12px;margin-top:16px;">
+  <button class="btn btn-p" style="flex:1;" onclick="generateVariants()">举一反三</button>
+  <button class="btn" style="flex:1;background:var(--c);color:var(--t);" id="exportPdfBtn" style="display:none;" onclick="exportVariantsPdf()">导出变式题PDF</button>
+</div>
+</div>
+<script>
+var currentKp = '{kp}';
+var currentGrade = '{grade}';
+async function generateVariants() {{
+  var r = document.getElementById('variants-result');
+  r.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner"></div><div style="color:var(--ts)">AI 正在生成变式题...</div></div>';
+  var d = new FormData(); d.append('knowledge_point', currentKp); d.append('grade', currentGrade);
+  try {{
+    var resp = await fetch('/generate-variants', {{method:'POST', body:d}});
+    var j = await resp.json();
+    if (j.error) {{ r.innerHTML = '<div class="err-msg">'+escHtml(j.error)+'</div>'; return; }}
+    var html = '';
+    j.variants.forEach(function(v, i) {{
+      html += '<div class="crd" style="margin-top:12px;"><div style="font-size:11px;color:var(--ts);">变式题 '+(i+1)+'</div><div style="font-size:14px;color:var(--t);line-height:1.8;margin:8px 0;">'+escHtml(v.problem)+'</div><div style="font-size:12px;color:var(--tw);">答案：'+escHtml(v.correct_answer)+'</div></div>';
+    }});
+    r.innerHTML = html;
+    document.getElementById('exportPdfBtn').style.display = 'block';
+  }} catch(e) {{ r.innerHTML = '<div class="err-msg">生成失败，请重试</div>'; }}
+}}
+async function exportVariantsPdf() {{
+  var cards = document.querySelectorAll('#variants-result .crd');
+  if (!cards.length) return;
+  var html = '<h2 style="text-align:center;">{kp_display} · 举一反三</h2>';
+  cards.forEach(function(c, i) {{ html += '<div style="margin-bottom:16px;page-break-inside:avoid;">'+c.innerHTML+'</div>'; }});
+  var d = new FormData(); d.append('html', html); d.append('title', '{kp_display}举一反三');
+  var resp = await fetch('/export-variants-pdf', {{method:'POST', body:d}});
+  if (resp.ok) {{
+    var blob = await resp.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = 'variants_export.pdf'; a.click();
+    URL.revokeObjectURL(url);
+  }}
+}}
+function escHtml(s) {{ var d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }}
+</script>"""
     return HTMLResponse(_pg(body, kp))
 
 @app.post("/generate-variants")
@@ -1623,13 +1705,37 @@ async def generate_variants_post(request: Request):
     kp = form.get("knowledge_point", "")
     if not kp: return JSONResponse({"error": "知识点不能为空"}, 400)
     pf = ctx.get("profile", {})
-    grade = pf.get("grade_level", "grade_4")
+    grade = form.get("grade", pf.get("grade_level", "grade_4"))
     curriculum = pf.get("curriculum_version", "人教版")
     from ai import generate_variants
     from knowledge_base import get_few_shot_examples
+    conn = ctx.get("conn")
     examples = get_few_shot_examples(conn, kp, grade, "math") if conn else []
     variants = generate_variants(kp, "thinking_error", "", grade, curriculum, "same", 3, False, examples)
     return JSONResponse({"variants": variants})
+
+
+@app.post("/export-variants-pdf")
+async def export_variants_pdf(request: Request):
+    redir, ctx = _auth(request)
+    if redir: return redir
+    form = await request.form()
+    html_content = form.get("html", "<p>暂无内容</p>")
+    title = form.get("title", "举一反三")
+    try:
+        import weasyprint
+        full_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{font-family:'PingFang SC','WenQuanYi Zen Hei',sans-serif;padding:20px;color:#333}}
+h2{{text-align:center;font-size:18px;margin-bottom:16px}}
+.crd{{background:#fff;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #eee}}
+</style></head><body>{html_content}</body></html>"""
+        pdf_bytes = weasyprint.HTML(string=full_html).write_pdf()
+        encoded_filename = quote(f"{title}.pdf")
+        return Response(pdf_bytes, media_type="application/pdf",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                                 "Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": f"PDF生成失败: {e}"}, 500)
 
 # ─── 我的 ──────────────────────────────────────
 
@@ -1789,7 +1895,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;backg
 .subject-remove{width:32px;height:32px;background:var(--rb);color:var(--r);border:none;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .subject-remove:active{opacity:.7}
 .subject-add-btn{padding:6px 14px;background:var(--w);border:1.5px dashed var(--br);border-radius:10px;font-size:13px;color:var(--ts);cursor:pointer;font-family:inherit}
-.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}.mcrd{background:var(--w);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.mcrd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}.mcrd-check{width:18px;height:18px;accent-color:var(--b);cursor:pointer;flex-shrink:0}.fig-link{font-size:12px;color:var(--b);text-decoration:none;padding:2px 10px;border:1px solid var(--br);border-radius:10px;flex-shrink:0}.mcrd-kp{flex:1;font-size:14px;font-weight:600;color:var(--t)}.mcrd-date{font-size:11px;color:var(--ts)}.mcrd-txa{width:100%;min-height:80px;font-size:14px;line-height:1.7;color:var(--t);border:1.5px solid var(--br);border-radius:10px;padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:inherit;background:var(--w)}.mcrd-txa:focus{outline:none;border-color:var(--b);box-shadow:0 0 0 3px rgba(91,127,255,.08)}.mcrd-acts{display:flex;align-items:center;gap:8px;margin-top:8px}.mbtn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;transition:opacity .15s}.mbtn:active{opacity:.8}.mbtn-save{background:var(--b);color:#FFF}.mbtn-del{background:var(--rb);color:var(--r)}.mbtn-exp{background:var(--b);color:#FFF}.mbtn-hint{font-size:12px;color:var(--a);display:none}.mcrd-img-wrap{position:relative;margin-top:10px}.mcrd-img{width:100%;border-radius:10px;cursor:pointer;border:1px solid var(--br)}.mcrd-img-label{text-align:center;font-size:11px;color:var(--ts);margin-top:4px}.mcrd-figs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.fig-item{position:relative;width:80px;text-align:center}.fig-thumb{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--br)}.fig-label{display:block;font-size:10px;color:var(--ts);margin-top:2px}.fig-del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#E04050;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}.mcrd-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.04)}.batch-bar{position:sticky;bottom:0;z-index:100;background:var(--w);border-radius:14px 14px 0 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}.batch-left{display:flex;align-items:center;gap:10px}.batch-right{display:flex;gap:8px}.batch-selall{font-size:13px;color:var(--t);cursor:pointer;display:flex;align-items:center;gap:4px}.batch-selall input{accent-color:var(--b)}.batch-count{font-size:13px;color:var(--ts);font-weight:600}.fig-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.fig-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.fig-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.fig-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.fig-scroll{flex:1;overflow-y:auto;padding:4px 8px}.fig-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,0,0,.06)}.fig-draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.fig-draw-img{display:block;width:100%;height:auto;pointer-events:none}.fig-draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.fig-hint{text-align:center;font-size:12px;color:var(--ts);padding:4px 12px}.date-filter{display:flex;gap:8px;align-items:center;margin-bottom:12px}.date-filter input[type=date]{font-size:13px;padding:6px 8px;border:1px solid var(--br);border-radius:8px;background:var(--w);color:var(--t);font-family:inherit;flex:1}.date-sep{font-size:12px;color:var(--ts);flex-shrink:0}.date-clear{font-size:12px;color:var(--r);background:none;border:none;cursor:pointer;padding:4px 8px}.pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:12px 0}.pager-btn{padding:6px 16px;border:1px solid var(--br);border-radius:20px;background:var(--w);color:var(--t);font-size:13px;cursor:pointer;font-family:inherit}.pager-btn:disabled{opacity:.3;cursor:default}.pager-info{font-size:13px;color:var(--ts)}@media print{.nb,.mcrd-top,.mcrd-acts,.mcrd-footer,.batch-bar,.mcrd-check,.date-filter,.pager{display:none!important}.mcrd{box-shadow:none;border-bottom:1px solid #ccc;border-radius:0;page-break-inside:avoid;margin-bottom:16px;padding:8px 0}.mcrd-txa{border:none;resize:none;min-height:auto;padding:0}}</style>"""
+.subject-add-btn:active{background:var(--c);border-color:var(--b);color:var(--b)}.qcard{display:flex;gap:12px;background:var(--w);border-radius:14px;padding:14px;margin-bottom:8px;border:2px solid transparent;cursor:pointer;transition:border-color .15s}.qcard-marked{border-color:rgba(255,91,107,.2);background:rgba(255,91,107,.015)}.qcard-left{display:flex;align-items:flex-start;gap:8px;flex-shrink:0}.qcheck{width:20px;height:20px;accent-color:var(--b);cursor:pointer;margin-top:1px}.qcard-idx{font-size:11px;font-weight:700;color:var(--tw);background:var(--c);border-radius:6px;padding:2px 7px;min-width:28px;text-align:center}.qcard-body{flex:1;min-width:0}.qcard-text{font-size:14px;color:var(--t);line-height:1.6;word-break:break-word}.qcard-ans{font-size:12px;color:var(--a);margin-top:6px;background:rgba(255,159,67,.06);padding:4px 8px;border-radius:6px;display:inline-block}.qcard-corr{font-size:11px;color:var(--r);margin-top:4px}.qbadge-wrong{display:inline-block;font-size:10px;font-weight:600;color:#E04050;background:rgba(255,91,107,.08);padding:2px 8px;border-radius:4px;margin-top:6px}.sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sel-title{font-size:16px;font-weight:700;color:var(--t)}.sel-count{font-size:12px;color:var(--ts);margin-bottom:12px;padding:6px 12px;background:var(--c);border-radius:8px;display:inline-block}.sel-all-btn{padding:6px 14px;border:1.5px solid var(--b);border-radius:20px;background:var(--w);color:var(--b);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}.sel-all-btn:active{background:var(--bb)}.mistake-title{text-align:center;font-size:19px;font-weight:700;color:var(--t);margin:4px 0 20px}.section-label{font-size:15px;font-weight:700;color:var(--t);margin:16px 0 8px}.sub-label{font-size:14px;font-weight:700;color:var(--ts);margin:16px 0 8px}.photo-btns{display:flex;gap:12px;margin-bottom:8px}.photo-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 12px;border-radius:14px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s}.photo-btn:active{opacity:.85}.photo-btn-camera{background:linear-gradient(135deg,#D6F6EB,#C5EDD8);color:#1A7D4E}.photo-btn-gallery{background:linear-gradient(135deg,#E4EFFC,#D0E0F8);color:#3D5FD9}.photo-btn-icon{font-size:28px}.draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.draw-img{display:block;width:100%;height:auto;pointer-events:none}.draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.selbox{position:absolute;border:2px solid var(--b);background:rgba(91,127,255,0.08);border-radius:4px;z-index:3;pointer-events:auto}.selbox-tmp{border-style:dashed;background:rgba(91,127,255,0.04)}.selbox-del{position:absolute;top:-12px;right:-12px;width:24px;height:24px;background:#E04050;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.2)}.shandle{position:absolute;width:16px;height:16px;background:#fff;border:2px solid var(--b);border-radius:3px;z-index:4;pointer-events:auto}.sh-tl{top:-6px;left:-6px;cursor:nw-resize}.sh-tr{top:-6px;right:-6px;cursor:ne-resize}.sh-bl{bottom:-6px;left:-6px;cursor:sw-resize}.sh-br{bottom:-6px;right:-6px;cursor:se-resize}.sel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.sel-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.sel-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.sel-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.sel-hint{flex-shrink:0}.sel-scroll{flex:1;overflow-y:auto;padding:4px 8px}.sel-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid rgba(0,0,0,.06)}.sel-bottombar .sel-count{font-size:13px;color:var(--t);background:var(--c);padding:6px 14px;border-radius:20px;margin:0;font-weight:600}.mcrd{background:var(--w);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.mcrd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}.mcrd-check{width:18px;height:18px;accent-color:var(--b);cursor:pointer;flex-shrink:0}.fig-link{font-size:12px;color:var(--b);text-decoration:none;padding:2px 10px;border:1px solid var(--br);border-radius:10px;flex-shrink:0}.mcrd-kp{flex:1;font-size:14px;font-weight:600;color:var(--t)}.mcrd-date{font-size:11px;color:var(--ts)}.mcrd-txa{width:100%;min-height:80px;font-size:14px;line-height:1.7;color:var(--t);border:1.5px solid var(--br);border-radius:10px;padding:10px 12px;resize:vertical;box-sizing:border-box;font-family:inherit;background:var(--w)}.mcrd-txa:focus{outline:none;border-color:var(--b);box-shadow:0 0 0 3px rgba(91,127,255,.08)}.kp-tag{display:inline-flex;align-items:center;gap:6px;margin:6px 0 0;background:rgba(52,199,89,0.08);border-radius:20px;padding:3px 12px}.kp-label{font-size:10px;font-weight:600;color:#28A745;text-transform:uppercase;letter-spacing:0.5px}.kp-value{font-size:12px;color:var(--ts)}.ep-card{display:block;border-radius:14px;padding:14px 16px;margin-bottom:10px;text-decoration:none;transition:opacity .15s}.ep-card:active{opacity:.8}.ep-name{display:block;font-size:15px;font-weight:700}.ep-count{display:block;font-size:12px;margin-top:4px;opacity:.7}.mcrd-acts{display:flex;align-items:center;gap:8px;margin-top:8px}.mbtn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;transition:opacity .15s}.mbtn:active{opacity:.8}.mbtn-save{background:var(--b);color:#FFF}.mbtn-del{background:var(--rb);color:var(--r)}.mbtn-exp{background:var(--b);color:#FFF}.mbtn-hint{font-size:12px;color:var(--a);display:none}.mcrd-img-wrap{position:relative;margin-top:10px}.mcrd-img{width:100%;border-radius:10px;cursor:pointer;border:1px solid var(--br)}.mcrd-img-label{text-align:center;font-size:11px;color:var(--ts);margin-top:4px}.mcrd-figs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.fig-item{position:relative;width:80px;text-align:center}.fig-thumb{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--br)}.fig-label{display:block;font-size:10px;color:var(--ts);margin-top:2px}.fig-del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#E04050;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}.mcrd-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.04)}.batch-bar{position:sticky;bottom:0;z-index:100;background:var(--w);border-radius:14px 14px 0 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}.batch-left{display:flex;align-items:center;gap:10px}.batch-right{display:flex;gap:8px}.batch-selall{font-size:13px;color:var(--t);cursor:pointer;display:flex;align-items:center;gap:4px}.batch-selall input{accent-color:var(--b)}.batch-count{font-size:13px;color:var(--ts);font-weight:600}.fig-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:var(--w);display:flex;flex-direction:column}.fig-topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex-shrink:0;border-bottom:1px solid rgba(0,0,0,.06)}.fig-topbar-title{font-size:16px;font-weight:700;color:var(--t)}.fig-close{width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(0,0,0,.12);background:var(--w);color:var(--t);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;line-height:1}.fig-scroll{flex:1;overflow-y:auto;padding:4px 8px}.fig-bottombar{flex-shrink:0;padding:8px 12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,0,0,.06)}.fig-draw-wrap{position:relative;width:100%;user-select:none;-webkit-user-select:none;touch-action:none}.fig-draw-img{display:block;width:100%;height:auto;pointer-events:none}.fig-draw-layer{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2}.fig-hint{text-align:center;font-size:12px;color:var(--ts);padding:4px 12px}.date-filter{display:flex;gap:8px;align-items:center;margin-bottom:12px}.date-filter input[type=date]{font-size:13px;padding:6px 8px;border:1px solid var(--br);border-radius:8px;background:var(--w);color:var(--t);font-family:inherit;flex:1}.date-sep{font-size:12px;color:var(--ts);flex-shrink:0}.date-clear{font-size:12px;color:var(--r);background:none;border:none;cursor:pointer;padding:4px 8px}.pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:12px 0}.pager-btn{padding:6px 16px;border:1px solid var(--br);border-radius:20px;background:var(--w);color:var(--t);font-size:13px;cursor:pointer;font-family:inherit}.pager-btn:disabled{opacity:.3;cursor:default}.pager-info{font-size:13px;color:var(--ts)}@media print{.nb,.mcrd-top,.mcrd-acts,.mcrd-footer,.batch-bar,.mcrd-check,.date-filter,.pager{display:none!important}.mcrd{box-shadow:none;border-bottom:1px solid #ccc;border-radius:0;page-break-inside:avoid;margin-bottom:16px;padding:8px 0}.mcrd-txa{border:none;resize:none;min-height:auto;padding:0}}</style>"""
 
 def _pg(body, title="错题Pro", nav=None):
     nh = _nav_bar(nav) if nav else ""
