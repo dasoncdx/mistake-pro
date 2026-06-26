@@ -173,12 +173,14 @@ def get_mistake(conn: sqlite3.Connection, mistake_id: int) -> dict:
 
 
 def _build_where(subject=None, pool_status=None, knowledge_point=None,
-                 date_from=None, date_to=None):
+                 date_from=None, date_to=None, grade_level=None):
     """构建 WHERE 子句，返回 (sql_fragment, params_list)"""
     sql = " WHERE 1=1"
     params = []
     if subject:
         sql += " AND subject = ?"; params.append(subject)
+    if grade_level:
+        sql += " AND grade_level = ?"; params.append(grade_level)
     if pool_status:
         sql += " AND pool_status = ?"; params.append(pool_status)
     if knowledge_point:
@@ -196,9 +198,10 @@ def list_mistakes(conn: sqlite3.Connection,
                   knowledge_point: str = None,
                   date_from: str = None,
                   date_to: str = None,
+                  grade_level: str = None,
                   limit: int = 50,
                   offset: int = 0) -> list[dict]:
-    where, params = _build_where(subject, pool_status, knowledge_point, date_from, date_to)
+    where, params = _build_where(subject, pool_status, knowledge_point, date_from, date_to, grade_level)
     sql = f"SELECT * FROM mistakes{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -207,8 +210,9 @@ def list_mistakes(conn: sqlite3.Connection,
 def count_mistakes(conn: sqlite3.Connection,
                    subject: str = None,
                    date_from: str = None,
-                   date_to: str = None) -> int:
-    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to)
+                   date_to: str = None,
+                   grade_level: str = None) -> int:
+    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to, grade_level=grade_level)
     sql = f"SELECT COUNT(*) FROM mistakes{where}"
     return conn.execute(sql, params).fetchone()[0]
 
@@ -216,9 +220,10 @@ def count_mistakes(conn: sqlite3.Connection,
 def get_filtered_ids(conn: sqlite3.Connection,
                      subject: str = None,
                      date_from: str = None,
-                     date_to: str = None) -> list[int]:
+                     date_to: str = None,
+                     grade_level: str = None) -> list[int]:
     """返回筛选结果的全部 ID，用于全选"""
-    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to)
+    where, params = _build_where(subject=subject, date_from=date_from, date_to=date_to, grade_level=grade_level)
     sql = f"SELECT id FROM mistakes{where} ORDER BY created_at DESC"
     return [r[0] for r in conn.execute(sql, params).fetchall()]
 

@@ -1451,6 +1451,9 @@ async def mistakes_list(request: Request):
     if redir: return redir
     subject = request.query_params.get("subject", "")
     subject_label = SUBJECT_NAMES.get(subject, subject)
+    pf = ctx.get("profile", {})
+    grade = pf.get("grade_level", "grade_4")
+    grade_label = GRADE_LABELS.get(grade, grade)
     date_from = request.query_params.get("date_from", "")
     date_to = request.query_params.get("date_to", "")
     page = int(request.query_params.get("page", "1"))
@@ -1459,11 +1462,11 @@ async def mistakes_list(request: Request):
     total = 0; total_pages = 0; all_filtered_ids = []
     if conn:
         from db import list_mistakes, count_mistakes, get_filtered_ids, get_figures_for_mistake
-        total = count_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None)
+        total = count_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, grade_level=grade)
         total_pages = max(1, (total + per_page - 1) // per_page)
         offset = (page - 1) * per_page
-        all_filtered_ids = get_filtered_ids(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None)
-        ms=list_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, limit=per_page, offset=offset)
+        all_filtered_ids = get_filtered_ids(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, grade_level=grade)
+        ms=list_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, limit=per_page, offset=offset, grade_level=grade)
         for m in ms:
             has_any=True
             mid=m["id"]
@@ -1523,7 +1526,7 @@ async def mistakes_list(request: Request):
   </div>
 </div>'''
 
-    title=f"{subject_label}错题本" if subject else "错题回顾"
+    title=f"{grade_label} · {subject_label}错题本" if subject else f"{grade_label} · 错题回顾"
     js=_JS_MISTAKES
     body=f'<div class="pg"><div class="nb"><a href="/home">← 返回</a><span class="tt">{title}</span></div>{date_filter}{pager}{cards or "<div style=\"color:var(--ts);font-size:13px;padding:20px;text-align:center;\">暂无错题</div>"}{pager}{batch_bar}<span id="allFilteredIds" data-ids="{all_ids_json}" style="display:none"></span></div>{js}'
     return HTMLResponse(_pg(body,"回顾"))
