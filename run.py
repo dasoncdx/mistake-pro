@@ -1051,12 +1051,33 @@ async def mistake_save_regions(request: Request):
             print(f"[save-regions] Vision API 失败: {e}")
             traceback.print_exc()
 
+        # 如果 OCR 文字为空，用纯 OCR prompt 补调用一次
+        ocr_text = analysis.get("ocr_text", "")
+        if not ocr_text.strip():
+            try:
+                import base64 as _b64
+                _client = _get_vision_client()
+                _model = os.environ.get("VISION_MODEL", "qwen-vl-max")
+                _b64img = _b64.b64encode(api_bytes).decode("utf-8")
+                _resp = _client.chat.completions.create(
+                    model=_model, max_tokens=1024, temperature=0.1,
+                    messages=[{"role":"user","content":[
+                        {"type":"text","text":"请逐字识别这张题目图片中的所有文字，包括题目、选项、算式、中文翻译。只输出原文，不要JSON格式，不要加任何说明。"},
+                        {"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{_b64img}"}}
+                    ]}]
+                )
+                ocr_text = (_resp.choices[0].message.content or "").strip()
+                analysis["ocr_text"] = ocr_text
+                print(f"[save-regions] 补OCR成功: {ocr_text[:80]}...")
+            except Exception as _e:
+                print(f"[save-regions] 补OCR失败: {_e}")
+
         # 学科自动识别：Vision API 优先，启发式规则降级
         detected = analysis.get("detected_subject", "")
         valid_subjects = {"math", "english", "chinese"}
         if detected not in valid_subjects:
             from ai import _guess_subject
-            detected = _guess_subject(analysis.get("ocr_text", ""))
+            detected = _guess_subject(ocr_text)
         if detected in valid_subjects and detected != subject:
             print(f"[save-regions] 学科自动纠正: {subject} -> {detected}")
             # 迁移已保存的 crop 文件到新学科目录
@@ -1133,6 +1154,27 @@ async def mistake_save_regions(request: Request):
                     print(f"[save-regions] 知识点匹配成功: mid={mid}, kp={kp}")
             except Exception as e:
                 print(f"[save-regions] 知识点匹配失败: {e}")
+
+    # 兜底：对所有"图片录入"的 math grade_4 错题再做一次匹配
+    if subject == "math" and grade == "grade_4" and conn:
+        try:
+            unmatched = conn.execute(
+                "SELECT id, ocr_text FROM mistakes WHERE knowledge_point='图片录入' AND subject='math' AND grade_level='grade_4' AND ocr_text IS NOT NULL AND ocr_text != ''"
+            ).fetchall()
+            from ai import match_knowledge_point
+            batch_matched = 0
+            for row in unmatched:
+                if batch_matched >= 5:
+                    break
+                kp = match_knowledge_point(row["ocr_text"], "math", "grade_4")
+                if kp:
+                    conn.execute("UPDATE mistakes SET knowledge_point=? WHERE id=?", (kp, row["id"]))
+                    batch_matched += 1
+            if batch_matched:
+                conn.commit()
+                print(f"[save-regions] 兜底匹配成功: {batch_matched} 道")
+        except Exception as e:
+            print(f"[save-regions] 兜底匹配失败: {e}")
 
     return JSONResponse({"count": saved})
 
@@ -1486,6 +1528,26 @@ async def mistakes_list(request: Request):
         offset = (page - 1) * per_page
         all_filtered_ids = get_filtered_ids(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, grade_level=grade)
         ms=list_mistakes(conn, subject=subject if subject else None, date_from=date_from or None, date_to=date_to or None, limit=per_page, offset=offset, grade_level=grade)
+
+        # 补匹配：对"图片录入"的错题尝试 AI 知识点匹配（每页最多试3道）
+        if subject == "math" and grade == "grade_4":
+            retry_count = 0
+            for m in ms:
+                if retry_count >= 3:
+                    break
+                if m.get("knowledge_point") == "图片录入" and m.get("ocr_text"):
+                    try:
+                        from ai import match_knowledge_point
+                        kp_matched = match_knowledge_point(m["ocr_text"], "math", "grade_4")
+                        if kp_matched:
+                            conn.execute("UPDATE mistakes SET knowledge_point=? WHERE id=?", (kp_matched, m["id"]))
+                            conn.commit()
+                            m["knowledge_point"] = kp_matched
+                            print(f"[mistakes_list] 补匹配成功: mid={m['id']}, kp={kp_matched}")
+                            retry_count += 1
+                    except Exception as e:
+                        print(f"[mistakes_list] 补匹配失败: {e}")
+
         for m in ms:
             has_any=True
             mid=m["id"]

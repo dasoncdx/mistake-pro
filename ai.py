@@ -237,6 +237,7 @@ def match_knowledge_point(ocr_text: str, subject: str, grade_level: str) -> str:
     import reference
     kp_list = reference.get_kp_names(subject, grade_level)
     if not kp_list:
+        print(f"[match_kp] kp_list 为空: subject={subject}, grade={grade_level}, reference文件未找到或为空")
         return ""
 
     prompt = kp_match_prompt(ocr_text, subject, grade_level, kp_list)
@@ -254,7 +255,8 @@ def match_knowledge_point(ocr_text: str, subject: str, grade_level: str) -> str:
                         if kp in name or name in kp:
                             return name
             return ""
-        except Exception:
+        except Exception as e:
+            print(f"[match_kp] API调用失败 (attempt {attempt+1}/3): {e}")
             if attempt == 2:
                 return ""  # 失败不阻塞流程
     return ""

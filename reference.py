@@ -3,7 +3,10 @@
 """
 
 import re
+import os
 from docx import Document
+
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 _cache: dict[str, list[dict]] = {}
 
@@ -19,8 +22,9 @@ def _build_path(subject: str, grade: str) -> str:
         "grade_1": "小一", "grade_2": "小二", "grade_3": "小三",
         "grade_4": "小四", "grade_5": "小五", "grade_6": "小六",
     }
+    subject_dir = {"math": "数学", "english": "英语", "chinese": "语文"}.get(subject, subject)
     grade_label = grade_label_map.get(grade, "小四")
-    return f"reference/{subject}/{grade_label}.docx"
+    return os.path.join(_ROOT, "reference", subject_dir, f"{grade_label}.docx")
 
 
 def load_knowledge_points(subject: str, grade: str) -> list[dict]:
@@ -35,7 +39,7 @@ def load_knowledge_points(subject: str, grade: str) -> list[dict]:
     path = _build_path(subject, grade)
     try:
         doc = Document(path)
-    except FileNotFoundError:
+    except Exception:
         return []
 
     results: list[dict] = []
