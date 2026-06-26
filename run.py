@@ -284,6 +284,7 @@ async def home(request: Request):
     async function updateGrade(v){{
       var d=new FormData();d.append('grade',v);
       await fetch('/update-grade',{{method:'POST',body:d}});
+      location.reload();
     }}
     async function addSubject(s){{
       var d=new FormData();d.append('subject',s);
