@@ -10,4 +10,5 @@ audit_report.json
 saved/
 static/processed/
 design/
+~$*.docx
 venv/
