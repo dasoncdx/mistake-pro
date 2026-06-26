@@ -245,7 +245,7 @@ async def home(request: Request):
         count = 0
         if conn:
             from db import list_mistakes
-            ms = list_mistakes(conn, subject=subj, limit=1000)
+            ms = list_mistakes(conn, subject=subj, limit=1000, grade_level=grade)
             count = len(ms)
         can_remove = len(subjects) > 1
         subject_cards += f'''<div class="subject-card-row">
